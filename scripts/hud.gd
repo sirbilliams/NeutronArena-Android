@@ -98,7 +98,7 @@ func _process(_d: float) -> void:
 		fuel_bar.value = me.fuel
 		var gtxt := "READY" if me.gadget_cd <= 0.0 else "%.1fs" % me.gadget_cd
 		var utxt := "ACTIVE %.1fs" % me.status.get("ult", 0.0) if me.has_status("ult") else ("READY (F / LB+RB)" if me.ult_charge >= cost else "%d%%" % int(100.0 * me.ult_charge / cost))
-		gear_label.text = "%s | Gadget [Q/LB] %s: %s | Move [Shift/RB] %s | Ult %s: %s%s" % [me.weapon.display_name, me.gadget.display_name, gtxt, me.movement.display_name, me.ultimate.display_name, utxt, ("  SHIELD %d" % int(me.status_val.get("shield", 0)) if me.has_status("shield") else "")]
+		gear_label.text = "%s | Gadget [Q/LB] %s: %s | Move [Shift/RB] %s | Ult %s: %s%s" % [me.weapon.display_name, me.gadget.display_name, gtxt, me.movement.display_name, me.ultimate.name_for(me.team), utxt, ("  SHIELD %d" % int(me.status_val.get("shield", 0)) if me.has_status("shield") else "")]
 		kd_label.text = "%s   kills %d  deaths %d" % [Config.TEAM_NAMES[me.team], world.kills.get(me.peer_id, 0), world.deaths.get(me.peer_id, 0)]
 		cross.visible = me.alive and not world.match_over
 		if world.match_over:
@@ -125,6 +125,7 @@ func _set_menu(open: bool) -> void:
 	if open:
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 		if me:
+			menu.team = me.team
 			menu.set_loadout(me.pending_loadout if not me.pending_loadout.is_empty() else me.loadout)
 		menu.set_info("First spawn: pick your loadout, it applies now." if first_pending else ("Dead: your choice applies when you respawn." if me and not me.alive else "Applies on your next respawn. [L] / Back closes."))
 		menu.focus_first()

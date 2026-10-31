@@ -22,3 +22,7 @@ static func all_ids() -> Array:
 
 func f(key: String, dflt := 0.0) -> float:
 	return float(p.get(key, dflt))
+
+## Team-specific display name (Jimmy: Goddard Scooter, Negatron: Negatron Scooter)
+func name_for(team: int) -> String:
+	return str(p.get("name_negatron", display_name)) if team == Config.TEAM_NEGATRON else display_name

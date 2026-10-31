@@ -26,7 +26,7 @@ const MOVEMENTS := {
 }
 const ULTIMATES := {
 	&"rocket_ship": {"name": "Rocket Ship", "desc": "Fly and fire rockets for 8 s.", "cost": 200, "duration": 8.0, "fly_speed": 13.0, "weapon": &"rocket"},
-	&"goddard_scooter": {"name": "Goddard Scooter", "desc": "Fast vehicle, ram enemies for 8 s.", "cost": 200, "duration": 8.0, "speed_mult": 2.4, "ram_damage": 45, "ram_interval": 0.8, "ram_radius": 1.8},
+	&"goddard_scooter": {"name": "Goddard Scooter", "name_negatron": "Negatron Scooter", "desc": "Fast vehicle, ram enemies for 8 s.", "cost": 200, "duration": 8.0, "speed_mult": 2.4, "ram_damage": 45, "ram_interval": 0.8, "ram_radius": 1.8},
 }
 ## slot order: primary, gadget, movement, ultimate
 const CLASSES := {

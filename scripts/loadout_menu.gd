@@ -6,6 +6,7 @@ extends Control
 signal confirmed(loadout: Dictionary)
 
 var loadout := Loadout.default_loadout()
+var team := 0   ## set by the owner; only changes display names
 var _slot_btns := {}      # slot -> Button
 var _options := {}        # slot -> Array of ids
 var _desc: Label
@@ -91,7 +92,7 @@ func _name_of(s: StringName, id: StringName) -> String:
 		&"primary": return WeaponData.get_weapon(id).display_name
 		&"gadget": return GadgetData.get_gadget(id).display_name
 		&"movement": return MovementData.get_movement(id).display_name
-		_: return UltimateData.get_ultimate(id).display_name
+		_: return UltimateData.get_ultimate(id).name_for(team)
 
 func _desc_of(s: StringName, id: StringName) -> String:
 	match s:

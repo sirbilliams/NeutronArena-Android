@@ -43,6 +43,8 @@ var gear: Node3D
 var fx_jet: Node3D
 var fx_shield: Node3D
 var fx_ship: Node3D
+var scooter_model: Node3D   # Negatron riding his own scooter (swapped in during the ultimate)
+var scooter_anim: AnimationPlayer
 var fx_drone: Node3D
 var fx_mark: Label3D
 var fx_hook: Node3D
@@ -124,6 +126,15 @@ func _build_model() -> void:
 	base_scale = s
 	model.scale = Vector3.ONE * s
 	add_child(model)
+	if team == Config.TEAM_NEGATRON:
+		scooter_model = Assets.try_scene("nummey_scooter.glb") as Node3D
+		if scooter_model:
+			scooter_model.scale = Vector3.ONE * s
+			scooter_model.visible = false
+			add_child(scooter_model)
+			scooter_anim = scooter_model.get_node_or_null("AnimationPlayer") as AnimationPlayer
+			if scooter_anim and scooter_anim.has_animation("nummeyscooter"):
+				scooter_anim.get_animation("nummeyscooter").loop_mode = Animation.LOOP_LINEAR
 	anim = model.get_node_or_null("AnimationPlayer") as AnimationPlayer
 	if anim == null:
 		return
@@ -422,8 +433,16 @@ func _animate() -> void:
 	cur_shrink = lerpf(cur_shrink, shr, 1.0 - exp(-10.0 * dt))
 	if model:
 		model.rotation.y = model_yaw + MODEL_YAW
-		model.visible = alive and not ult_is(&"rocket_ship")
+		var neg_sc := scooter_model != null and ult_is(&"goddard_scooter")
+		model.visible = alive and not ult_is(&"rocket_ship") and not neg_sc
+		if scooter_model:
+			scooter_model.visible = alive and neg_sc
+			scooter_model.rotation.y = model_yaw + MODEL_YAW
+			scooter_model.scale = Vector3.ONE * base_scale * cur_shrink
+			if neg_sc and scooter_anim and scooter_anim.current_animation != "nummeyscooter":
+				scooter_anim.play("nummeyscooter")
 		model.scale = Vector3.ONE * base_scale * cur_shrink
+		model.position.y = 25.0 * Config.WORLD_SCALE * cur_shrink if ult_is(&"goddard_scooter") and team == Config.TEAM_JIMMY else 0.0   # rider stands on the scooter deck
 	if gear:
 		gear.rotation.y = model_yaw
 		gear.scale = Vector3.ONE * cur_shrink
@@ -457,7 +476,7 @@ func _update_fx() -> void:
 		if m and m.material_override:
 			(m.material_override as StandardMaterial3D).albedo_color = Color(0.4, 1.0, 0.6, 0.28) if (fl & 4) != 0 and not has_status("shield") else Color(0.3, 0.7, 1.0, 0.3)
 	if fx_ship:
-		fx_ship.visible = alive and (ult_is(&"rocket_ship") or ult_is(&"goddard_scooter"))
+		fx_ship.visible = alive and (ult_is(&"rocket_ship") or (ult_is(&"goddard_scooter") and (team == Config.TEAM_JIMMY or scooter_model == null)))
 	if fx_drone:
 		fx_drone.visible = alive and has_status("drone")
 		fx_drone.position = Vector3(cos(Time.get_ticks_msec() / 400.0) * 0.8, 2.0 + sin(Time.get_ticks_msec() / 300.0) * 0.1, sin(Time.get_ticks_msec() / 400.0) * 0.8)
@@ -599,7 +618,7 @@ func _build_gear() -> void:
 	gear.add_child(fx_shield)
 	# ultimate vehicle
 	fx_ship = Node3D.new()
-	fx_ship.position.y = 0.6
+	fx_ship.position.y = 0.6 if ultimate.id == &"rocket_ship" else 0.0
 	if ultimate.id == &"rocket_ship":
 		var sh := Fx.model("ase/n1/strato.glb")
 		if sh:
@@ -611,12 +630,14 @@ func _build_gear() -> void:
 			mi.rotation.x = PI / 2.0
 			fx_ship.add_child(mi)
 	else:
-		var sc := Fx.model("ase/n1/godscooter.glb")
+		# raw model units (like the characters): ~101 tall, head/handlebars at -Z (forward), deck top ~y 25 around z +8
+		var sc := Fx.model("ase/n1/godscooter.glb") if team == Config.TEAM_JIMMY else null
 		if sc:
-			Fx.fit(sc, 2.0)
+			sc.scale = Vector3.ONE * Config.WORLD_SCALE
+			sc.position = Vector3(0, 0, -8.0 * Config.WORLD_SCALE)
 			fx_ship.add_child(sc)
 		else:
-			fx_ship.add_child(Fx.box(Vector3(0.8, 0.6, 1.8), Color(0.45, 0.55, 0.25)))
+			fx_ship.add_child(Fx.box(Vector3(0.4, 0.2, 1.0), Color(0.45, 0.55, 0.25)))
 	fx_ship.visible = false
 	gear.add_child(fx_ship)
 	fx_drone = Fx.sphere(0.18, Color(0.9, 0.9, 0.3))
