@@ -5,6 +5,7 @@ var world: World
 var hud: Hud
 var status: Label
 var port := Config.PORT
+var shot_path := ""
 
 func _ready() -> void:
 	name = "Main"
@@ -16,6 +17,7 @@ func _ready() -> void:
 		elif a.begins_with("--join="): join_ip = a.substr(7)
 		elif a.begins_with("--port="): port = int(a.substr(7))
 		elif a.begins_with("--test="): test = a.substr(7)
+		elif a.begins_with("--shot="): shot_path = a.substr(7)
 	if test != "":
 		Config.test_mode = true
 		var t = load("res://scripts/net_test.gd").new()
@@ -25,6 +27,11 @@ func _ready() -> void:
 		return
 	if host:
 		start_host()
+		if shot_path != "":
+			await get_tree().create_timer(4.0).timeout
+			get_viewport().get_texture().get_image().save_png(shot_path)
+			print("saved ", shot_path)
+			get_tree().quit()
 	elif join_ip != "":
 		start_join(join_ip)
 	else:
@@ -117,7 +124,8 @@ func start_join(ip: String) -> bool:
 	multiplayer.multiplayer_peer = peer
 	multiplayer.server_disconnected.connect(func():
 		print("server disconnected")
-		get_tree().quit())
+		if not Config.test_mode:
+			get_tree().quit())
 	return true
 
 func _unhandled_input(e: InputEvent) -> void:

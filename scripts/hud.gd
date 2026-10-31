@@ -42,7 +42,7 @@ func _ready() -> void:
 	add_child(info_label)
 
 func _process(_d: float) -> void:
-	if world == null or not multiplayer.has_multiplayer_peer():
+	if world == null or not multiplayer.has_multiplayer_peer() or multiplayer.multiplayer_peer.get_connection_status() != MultiplayerPeer.CONNECTION_CONNECTED:
 		return
 	score_label.text = "JIMMY %d  -  %d NEGATRON   (first to %d)" % [world.team_score[0], world.team_score[1], Config.WIN_SCORE]
 	var me: Player = world.players.get(multiplayer.get_unique_id())

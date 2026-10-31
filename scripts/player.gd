@@ -191,7 +191,8 @@ func _local_step(delta: float) -> void:
 	sync_t += delta
 	if sync_t >= 1.0 / SYNC_HZ:
 		sync_t = 0.0
-		net_state.rpc(global_position, model_yaw, h_speed)
+		if multiplayer.has_multiplayer_peer() and multiplayer.multiplayer_peer.get_connection_status() == MultiplayerPeer.CONNECTION_CONNECTED:
+			net_state.rpc(global_position, model_yaw, h_speed)
 
 func muzzle() -> Vector3:
 	return global_position + Vector3(0, 1.0, 0)
