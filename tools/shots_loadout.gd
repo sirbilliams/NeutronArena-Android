@@ -69,12 +69,12 @@ func _ready() -> void:
 			world.bubbles_root.add_child(r)
 			_cam(mid + Vector3(4.5, 4.5, 6.0), mid + Vector3(0, 3.0, 1.0), 65)],
 		[95, func(): _snap("rocket_ultimate")],
-		# jeep + goof boots glide
+		# scooter + goof boots glide
 		[96, func():
 			a.set_loadout(Loadout.from_class(&"blaster"), 100)
 			a.set_status("ult", 8.0)
 			_cam(mid + Vector3(4.5, 2.5, 6.0), mid + Vector3(0, 1.0, 2.5), 65)],
-		[115, func(): _snap("jeep_ultimate"); get_tree().quit()],
+		[115, func(): _snap("scooter_ultimate"); get_tree().quit()],
 	]
 
 func _cam(pos: Vector3, look: Vector3, fov: float) -> void:

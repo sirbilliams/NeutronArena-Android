@@ -81,7 +81,7 @@ func _lo_server() -> void:
 	await get_tree().create_timer(1.0).timeout
 	check(100 - world.info[cid].hp == 30, "shrunk target takes +50%%: 20 -> %d" % (100 - world.info[cid].hp))
 	# --- energy shield absorbs
-	_set_srv_loadout(cid, _lo(&"burp_gun", &"energy_shield", &"goof_boots", &"goddard_jeep"))
+	_set_srv_loadout(cid, _lo(&"burp_gun", &"energy_shield", &"goof_boots", &"goddard_scooter"))
 	world.info[cid].st.erase("shrink")
 	_reset_victim(cid)
 	world.info[cid].gadget_ready = 0.0
@@ -99,7 +99,7 @@ func _lo_server() -> void:
 	check(world.info[cid].hp == 40 and world.info[cid].shield_hp == 0, "overflow damage passes after shield breaks (hp %d)" % world.info[cid].hp)
 	# --- power phase: invulnerable, can't shoot
 	await get_tree().create_timer(0.3).timeout
-	_set_srv_loadout(cid, _lo(&"bubble_gun", &"power_phase", &"sprint", &"goddard_jeep"))
+	_set_srv_loadout(cid, _lo(&"bubble_gun", &"power_phase", &"sprint", &"goddard_scooter"))
 	_reset_victim(cid)
 	world.info[cid].gadget_ready = 0.0
 	world._srv_gadget(cid, vic.global_position + Vector3(0, 1, 0), Vector3.FORWARD)

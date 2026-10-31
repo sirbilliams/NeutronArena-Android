@@ -500,7 +500,7 @@ func _physics_process(_d: float) -> void:
 		if not info[id].alive or not srv_has(id, "ult"):
 			continue
 		var u := UltimateData.get_ultimate(info[id].loadout.ultimate)
-		if u.id != &"goddard_jeep" or not players.has(id):
+		if u.id != &"goddard_scooter" or not players.has(id):
 			continue
 		var me: Player = players[id]
 		for eid in info:

@@ -26,15 +26,15 @@ const MOVEMENTS := {
 }
 const ULTIMATES := {
 	&"rocket_ship": {"name": "Rocket Ship", "desc": "Fly and fire rockets for 8 s.", "cost": 200, "duration": 8.0, "fly_speed": 13.0, "weapon": &"rocket"},
-	&"goddard_jeep": {"name": "Goddard Jeep", "desc": "Fast vehicle, ram enemies for 8 s.", "cost": 200, "duration": 8.0, "speed_mult": 2.4, "ram_damage": 45, "ram_interval": 0.8, "ram_radius": 1.8},
+	&"goddard_scooter": {"name": "Goddard Scooter", "desc": "Fast vehicle, ram enemies for 8 s.", "cost": 200, "duration": 8.0, "speed_mult": 2.4, "ram_damage": 45, "ram_interval": 0.8, "ram_radius": 1.8},
 }
 ## slot order: primary, gadget, movement, ultimate
 const CLASSES := {
 	&"inventor": {"name": "Inventor", "primary": &"bubble_gun", "gadget": &"energy_shield", "movement": &"sprint", "ultimate": &"rocket_ship"},
-	&"blaster": {"name": "Blaster", "primary": &"burp_gun", "gadget": &"shrink_ray", "movement": &"goof_boots", "ultimate": &"goddard_jeep"},
+	&"blaster": {"name": "Blaster", "primary": &"burp_gun", "gadget": &"shrink_ray", "movement": &"goof_boots", "ultimate": &"goddard_scooter"},
 	&"sky_jockey": {"name": "Sky Jockey", "primary": &"bubble_gun", "gadget": &"laser_trap", "movement": &"jetpack", "ultimate": &"rocket_ship"},
-	&"mastermind": {"name": "Mastermind", "primary": &"water_gun", "gadget": &"drone", "movement": &"sprint", "ultimate": &"goddard_jeep"},
-	&"heavy": {"name": "Heavy", "primary": &"mega_burp", "gadget": &"energy_shield", "movement": &"none", "ultimate": &"goddard_jeep"},
+	&"mastermind": {"name": "Mastermind", "primary": &"water_gun", "gadget": &"drone", "movement": &"sprint", "ultimate": &"goddard_scooter"},
+	&"heavy": {"name": "Heavy", "primary": &"mega_burp", "gadget": &"energy_shield", "movement": &"none", "ultimate": &"goddard_scooter"},
 }
 const DEFAULT_CLASS := &"inventor"
 const SLOTS := [&"primary", &"gadget", &"movement", &"ultimate"]

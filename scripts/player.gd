@@ -224,7 +224,7 @@ func speed_mult(sprinting: bool) -> float:
 		m *= GadgetData.get_gadget(&"shrink_ray").f("slow", 1.0)
 	if has_status("slow"):
 		m *= float(status_val.get("slow", 1.0))
-	if ult_is(&"goddard_jeep"):
+	if ult_is(&"goddard_scooter"):
 		m *= ultimate.f("speed_mult", 1.0)
 	return m
 
@@ -422,7 +422,7 @@ func _animate() -> void:
 	cur_shrink = lerpf(cur_shrink, shr, 1.0 - exp(-10.0 * dt))
 	if model:
 		model.rotation.y = model_yaw + MODEL_YAW
-		model.visible = alive and not ult_is(&"rocket_ship") and not ult_is(&"goddard_jeep")
+		model.visible = alive and not ult_is(&"rocket_ship")
 		model.scale = Vector3.ONE * base_scale * cur_shrink
 	if gear:
 		gear.rotation.y = model_yaw
@@ -457,7 +457,7 @@ func _update_fx() -> void:
 		if m and m.material_override:
 			(m.material_override as StandardMaterial3D).albedo_color = Color(0.4, 1.0, 0.6, 0.28) if (fl & 4) != 0 and not has_status("shield") else Color(0.3, 0.7, 1.0, 0.3)
 	if fx_ship:
-		fx_ship.visible = alive and (ult_is(&"rocket_ship") or ult_is(&"goddard_jeep"))
+		fx_ship.visible = alive and (ult_is(&"rocket_ship") or ult_is(&"goddard_scooter"))
 	if fx_drone:
 		fx_drone.visible = alive and has_status("drone")
 		fx_drone.position = Vector3(cos(Time.get_ticks_msec() / 400.0) * 0.8, 2.0 + sin(Time.get_ticks_msec() / 300.0) * 0.1, sin(Time.get_ticks_msec() / 400.0) * 0.8)
@@ -611,7 +611,12 @@ func _build_gear() -> void:
 			mi.rotation.x = PI / 2.0
 			fx_ship.add_child(mi)
 	else:
-		fx_ship.add_child(Fx.box(Vector3(1.3, 0.6, 2.4), Color(0.45, 0.55, 0.25)))   # Goddard jeep placeholder
+		var sc := Fx.model("ase/n1/godscooter.glb")
+		if sc:
+			Fx.fit(sc, 2.0)
+			fx_ship.add_child(sc)
+		else:
+			fx_ship.add_child(Fx.box(Vector3(0.8, 0.6, 1.8), Color(0.45, 0.55, 0.25)))
 	fx_ship.visible = false
 	gear.add_child(fx_ship)
 	fx_drone = Fx.sphere(0.18, Color(0.9, 0.9, 0.3))
