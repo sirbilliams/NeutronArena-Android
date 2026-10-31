@@ -40,3 +40,9 @@ func _extract_faces(st: GLTFState) -> Dictionary:
 					tris[base + i] = v[idx[i]]
 		out[n.resource_name] = tris
 	return out
+
+## Like load_scene but silent: returns null when the file is missing or fails to load (never crashes).
+func try_scene(rel: String) -> Node:
+	if not FileAccess.file_exists(Config.asset_path(rel)):
+		return null
+	return load_scene(rel)

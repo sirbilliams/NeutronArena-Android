@@ -52,7 +52,7 @@ func _axis(action: String, a: JoyAxis, v: float) -> void:
 	InputMap.action_add_event(action, e)
 
 func _setup_input() -> void:
-	for a in ["move_left", "move_right", "move_forward", "move_back", "look_left", "look_right", "look_up", "look_down", "jump", "fire"]:
+	for a in ["move_left", "move_right", "move_forward", "move_back", "look_left", "look_right", "look_up", "look_down", "jump", "fire", "gadget", "movement", "ultimate", "loadout_menu"]:
 		if not InputMap.has_action(a):
 			InputMap.add_action(a, 0.2)
 	_key("move_left", KEY_A); _key("move_right", KEY_D); _key("move_forward", KEY_W); _key("move_back", KEY_S)
@@ -62,7 +62,10 @@ func _setup_input() -> void:
 	_axis("look_left", JOY_AXIS_RIGHT_X, -1.0); _axis("look_right", JOY_AXIS_RIGHT_X, 1.0)
 	_axis("look_up", JOY_AXIS_RIGHT_Y, -1.0); _axis("look_down", JOY_AXIS_RIGHT_Y, 1.0)
 	_btn("jump", JOY_BUTTON_A)
-	_btn("fire", JOY_BUTTON_RIGHT_SHOULDER)
+	_key("gadget", KEY_Q); _btn("gadget", JOY_BUTTON_LEFT_SHOULDER)
+	_key("movement", KEY_SHIFT); _btn("movement", JOY_BUTTON_RIGHT_SHOULDER)
+	_key("ultimate", KEY_F)   # gamepad: LB+RB together (handled in Player)
+	_key("loadout_menu", KEY_L); _btn("loadout_menu", JOY_BUTTON_BACK)
 	_axis("fire", JOY_AXIS_TRIGGER_RIGHT, 1.0)
 	var m := InputEventMouseButton.new(); m.button_index = MOUSE_BUTTON_LEFT
 	InputMap.action_add_event("fire", m)

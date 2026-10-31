@@ -6,6 +6,8 @@ signal player_added(id: int)
 signal player_died(id: int, killer: int)
 signal player_respawned(id: int)
 signal player_hurt(id: int, hp: int)
+signal loadout_changed(id: int)
+signal loadout_pending()
 
 var level: ArenaLevel
 var players := {}          # peer id -> Player
@@ -20,6 +22,10 @@ var spawn_counter := [0, 0]
 var bubble_counter := 0
 var players_root: Node3D
 var bubbles_root: Node3D
+var traps_root: Node3D
+var traps := []            # server: {id, owner, team, a, b, ends}
+var trap_counter := 0
+var trap_nodes := {}       # all peers: id -> Node3D
 
 func _ready() -> void:
 	name = "World"
@@ -28,6 +34,7 @@ func _ready() -> void:
 	add_child(level)
 	players_root = Node3D.new(); players_root.name = "Players"; add_child(players_root)
 	bubbles_root = Node3D.new(); bubbles_root.name = "Bubbles"; add_child(bubbles_root)
+	traps_root = Node3D.new(); traps_root.name = "Traps"; add_child(traps_root)
 
 func build() -> bool:
 	if not level.load_level():
@@ -55,7 +62,7 @@ func _srv_peer_connected(id: int) -> void:
 	for i in info:
 		counts[info[i].team] += 1
 	var team: int = Config.TEAM_JIMMY if counts[0] <= counts[1] else Config.TEAM_NEGATRON
-	info[id] = {"team": team, "hp": Config.MAX_HP, "alive": true, "kills": 0, "deaths": 0, "last_fire": -10.0, "weapon": &"bubble_gun"}
+	info[id] = {"team": team, "hp": Config.MAX_HP, "alive": true, "kills": 0, "deaths": 0, "last_fire": -10.0, "loadout": Loadout.default_loadout(), "pending": {}, "confirmed": false, "max_hp": Config.MAX_HP, "st": {}, "shield_hp": 0, "ult_charge": 0, "gadget_ready": 0.0, "ram_cd": {}}
 	var sp := _next_spawn(team)
 	# tell the new peer about everyone already here, then everyone about the new one
 	for i in info:
@@ -65,6 +72,12 @@ func _srv_peer_connected(id: int) -> void:
 			if id != 1:
 				c_add_player.rpc_id(id, i, info[i].team, tr)
 	c_add_player.rpc(id, team, sp)
+	for i in info:
+		if i != id and id != 1:
+			c_loadout.rpc_id(id, i, Loadout.to_wire(info[i].loadout), info[i].max_hp)
+	c_loadout.rpc(id, Loadout.to_wire(info[id].loadout), info[id].max_hp)
+	for t in traps:
+		c_trap.rpc_id(id, t.id, t.owner, t.team, t.a, t.b)
 	c_scores.rpc_id(id, team_score, kills, deaths)
 
 func _srv_peer_disconnected(id: int) -> void:
@@ -77,39 +90,79 @@ func _next_spawn(team: int) -> Transform3D:
 	return level.spawn_point(team, idx)
 
 ## Called on the owner: ask the server to shoot.
-func request_fire_local(origin: Vector3, dir: Vector3) -> void:
+func request_fire_local(origin: Vector3, dir: Vector3, chg := 0.0) -> void:
 	if multiplayer.is_server():
-		_srv_fire(1, origin, dir)
+		_srv_fire(1, origin, dir, chg)
 	else:
-		srv_request_fire.rpc_id(1, origin, dir)
+		srv_request_fire.rpc_id(1, origin, dir, chg)
 
 @rpc("any_peer", "reliable")
-func srv_request_fire(origin: Vector3, dir: Vector3) -> void:
+func srv_request_fire(origin: Vector3, dir: Vector3, chg := 0.0) -> void:
 	if not multiplayer.is_server():
 		return
-	_srv_fire(multiplayer.get_remote_sender_id(), origin, dir)
+	_srv_fire(multiplayer.get_remote_sender_id(), origin, dir, chg)
 
-func _srv_fire(id: int, origin: Vector3, dir: Vector3) -> void:
-	if not info.has(id) or match_over or not info[id].alive:
+func _now() -> float:
+	return Time.get_ticks_msec() / 1000.0
+
+## Server: is a timed status (shrink, slow, shield, phase, ult, marked, drone) active on this player?
+func srv_has(id: int, kind: String) -> bool:
+	return info.has(id) and info[id].st.get(kind, 0.0) > _now()
+
+func srv_set_status(id: int, kind: String, dur: float, val: float = 0.0) -> void:
+	if not info.has(id):
+		return
+	info[id].st[kind] = _now() + dur
+	c_status.rpc(id, kind, dur, val)
+
+func srv_weapon(id: int) -> WeaponData:
+	var lo: Dictionary = info[id].loadout
+	if srv_has(id, "ult"):
+		var u := UltimateData.get_ultimate(lo.ultimate)
+		if u.p.has("weapon"):
+			return WeaponData.get_weapon(u.p.weapon)
+	return WeaponData.get_weapon(lo.primary)
+
+func net_ready() -> bool:
+	return multiplayer.has_multiplayer_peer() and multiplayer.multiplayer_peer.get_connection_status() == MultiplayerPeer.CONNECTION_CONNECTED
+
+func local_team() -> int:
+	if not net_ready():
+		return -1
+	var me: Player = players.get(multiplayer.get_unique_id())
+	return me.team if me else -1
+
+func _srv_fire(id: int, origin: Vector3, dir: Vector3, chg := 0.0) -> void:
+	if not info.has(id) or match_over or not info[id].alive or srv_has(id, "phase"):
 		return
 	var inf: Dictionary = info[id]
-	var w := WeaponData.get_weapon(inf.weapon)
-	var now := Time.get_ticks_msec() / 1000.0
+	var w := srv_weapon(id)
+	var now := _now()
 	if now - inf.last_fire < w.fire_interval * 0.8:
 		return
 	var p: Player = players.get(id)
 	if p == null or origin.distance_to(p.global_position) > 4.0 or dir.length() < 0.5:
 		return
 	inf.last_fire = now
-	bubble_counter += 1
-	c_spawn_bubble.rpc(bubble_counter, id, inf.team, w.id, origin, dir.normalized())
+	var dmg := w.damage_for(clampf(chg, 0.0, 1.0))
+	var d := dir.normalized()
+	var side := d.cross(Vector3.UP).normalized() if absf(d.y) < 0.99 else Vector3.RIGHT
+	var up := side.cross(d)
+	for i in w.pellets:
+		var pd := d
+		if w.pellets > 1 and w.spread > 0.0:
+			var a := randf() * TAU
+			pd = (d + (side * cos(a) + up * sin(a)) * w.spread * sqrt(randf())).normalized()
+		bubble_counter += 1
+		c_spawn_bubble.rpc(bubble_counter, id, inf.team, w.id, origin, pd, dmg)
+
 
 ## Server: first enemy alive player whose capsule axis is within radius of the segment, 0 if none.
 func bubble_test_players(from: Vector3, to: Vector3, radius: float, shooter: int, team: int) -> int:
 	var best := 0
 	var best_t := 2.0
 	for id in players:
-		if id == shooter or not info.has(id) or not info[id].alive or info[id].team == team:
+		if id == shooter or not info.has(id) or not info[id].alive or info[id].team == team or srv_has(id, "phase"):
 			continue
 		var p: Player = players[id]
 		var a := p.global_position + Vector3(0, 0.3, 0)
@@ -154,13 +207,28 @@ func _seg_seg_dist(p1: Vector3, q1: Vector3, p2: Vector3, q2: Vector3) -> Array:
 	var c2 := p2 + d2 * t
 	return [c1.distance_to(c2), s]
 
-func srv_hit(victim: int, shooter: int, dmg: int) -> void:
+func srv_hit(victim: int, shooter: int, dmg: int, weapon: WeaponData = null) -> void:
 	if not info.has(victim) or not info[victim].alive or match_over:
 		return
+	if srv_has(victim, "phase"):
+		return
 	var v: Dictionary = info[victim]
+	if srv_has(victim, "shrink"):
+		dmg = roundi(dmg * GadgetData.get_gadget(&"shrink_ray").f("dmg_mult", 1.0))
+	_srv_add_charge(shooter, victim, dmg)
+	if v.shield_hp > 0 and srv_has(victim, "shield"):
+		var ab := mini(v.shield_hp, dmg)
+		v.shield_hp -= ab
+		dmg -= ab
+		c_status.rpc(victim, "shield", maxf(0.01, v.st.get("shield", 0.0) - _now()), float(v.shield_hp))
+		if v.shield_hp <= 0:
+			v.st.erase("shield")
+			c_status.rpc(victim, "shield", 0.0, 0.0)
 	v.hp = maxi(0, v.hp - dmg)
 	c_hp.rpc(victim, v.hp)
 	if v.hp > 0:
+		if weapon and weapon.slow_time > 0.0:
+			srv_set_status(victim, "slow", weapon.slow_time, weapon.slow_factor)
 		return
 	v.alive = false
 	v.deaths += 1
@@ -178,10 +246,25 @@ func srv_hit(victim: int, shooter: int, dmg: int) -> void:
 	else:
 		get_tree().create_timer(Config.RESPAWN_TIME).timeout.connect(_srv_respawn.bind(victim))
 
+func _srv_add_charge(shooter: int, victim: int, dmg: int) -> void:
+	if shooter == victim or not info.has(shooter) or srv_has(shooter, "ult"):
+		return
+	var inf: Dictionary = info[shooter]
+	var cost := int(UltimateData.get_ultimate(inf.loadout.ultimate).f("cost"))
+	var nc := mini(cost, inf.ult_charge + dmg)
+	if nc != inf.ult_charge:
+		inf.ult_charge = nc
+		c_ult_charge.rpc(shooter, nc)
+
+
 func _srv_respawn(id: int) -> void:
 	if not info.has(id) or match_over:
 		return
-	info[id].hp = Config.MAX_HP
+	info[id].st.clear()
+	info[id].shield_hp = 0
+	info[id].ram_cd.clear()
+	_srv_apply_loadout(id, false)
+	info[id].hp = info[id].max_hp
 	info[id].alive = true
 	c_respawn.rpc(id, _next_spawn(info[id].team))
 
@@ -220,12 +303,12 @@ func c_remove_player(id: int) -> void:
 	state_changed.emit()
 
 @rpc("authority", "call_local", "reliable")
-func c_spawn_bubble(bid: int, shooter: int, team: int, wid: StringName, origin: Vector3, dir: Vector3) -> void:
+func c_spawn_bubble(bid: int, shooter: int, team: int, wid: StringName, origin: Vector3, dir: Vector3, dmg: int) -> void:
 	var b := Bubble.new()
 	b.name = "b%d" % bid
 	b.world = self
 	b.authoritative = multiplayer.is_server()
-	b.setup(WeaponData.get_weapon(wid), shooter, team, origin, dir)
+	b.setup(WeaponData.get_weapon(wid), shooter, team, origin, dir, dmg)
 	bubbles_root.add_child(b)
 	var p: Player = players.get(shooter)
 	if p:
@@ -268,3 +351,208 @@ func c_match_reset() -> void:
 	match_over = false
 	winner = -1
 	state_changed.emit()
+
+# ---------------------------------------------------------------- loadouts / gadgets / ultimates (server)
+## Owner: choose a loadout. First confirm applies immediately (first spawn); later ones apply on next respawn.
+func request_loadout(lo: Dictionary) -> void:
+	var wire := Loadout.to_wire(lo)
+	if multiplayer.is_server():
+		_srv_set_loadout(1, wire)
+	else:
+		srv_loadout.rpc_id(1, wire)
+
+@rpc("any_peer", "reliable")
+func srv_loadout(wire: Dictionary) -> void:
+	if multiplayer.is_server():
+		_srv_set_loadout(multiplayer.get_remote_sender_id(), wire)
+
+func _srv_set_loadout(id: int, wire: Dictionary) -> void:
+	if not info.has(id):
+		return
+	var inf: Dictionary = info[id]
+	inf.pending = Loadout.sanitize(wire)
+	c_pending.rpc_id(id, Loadout.to_wire(inf.pending))
+	if not inf.confirmed:
+		inf.confirmed = true
+		_srv_apply_loadout(id, true)
+
+func _srv_apply_loadout(id: int, heal: bool) -> void:
+	var inf: Dictionary = info[id]
+	var lo: Dictionary = inf.pending if not inf.pending.is_empty() else inf.loadout
+	if lo.ultimate != inf.loadout.ultimate:
+		inf.ult_charge = 0
+		c_ult_charge.rpc(id, 0)
+	inf.loadout = lo
+	inf.max_hp = Loadout.max_hp(lo)
+	inf.gadget_ready = 0.0
+	if heal:
+		inf.hp = inf.max_hp
+		c_hp.rpc(id, inf.hp)
+	c_loadout.rpc(id, Loadout.to_wire(lo), inf.max_hp)
+
+func request_gadget(origin: Vector3, dir: Vector3) -> void:
+	if multiplayer.is_server():
+		_srv_gadget(1, origin, dir)
+	else:
+		srv_gadget.rpc_id(1, origin, dir)
+
+@rpc("any_peer", "reliable")
+func srv_gadget(origin: Vector3, dir: Vector3) -> void:
+	if multiplayer.is_server():
+		_srv_gadget(multiplayer.get_remote_sender_id(), origin, dir)
+
+func _srv_gadget(id: int, origin: Vector3, dir: Vector3) -> void:
+	if not info.has(id) or match_over or not info[id].alive or srv_has(id, "phase"):
+		return
+	var inf: Dictionary = info[id]
+	var p: Player = players.get(id)
+	if p == null or _now() < inf.gadget_ready or origin.distance_to(p.global_position) > 4.0 or dir.length() < 0.5:
+		return
+	var g := GadgetData.get_gadget(inf.loadout.gadget)
+	inf.gadget_ready = _now() + g.f("cooldown") * 0.9
+	var d := dir.normalized()
+	match g.id:
+		&"shrink_ray":
+			var end := origin + d * g.f("range")
+			var q := PhysicsRayQueryParameters3D.create(origin, end, 1)
+			var r := get_world_3d().direct_space_state.intersect_ray(q)
+			if r:
+				end = r.position
+			var victim := bubble_test_players(origin, end, 0.3, id, inf.team)
+			if victim != 0:
+				srv_set_status(victim, "shrink", g.f("duration"))
+			c_beam.rpc(id, origin, end)
+		&"energy_shield":
+			inf.shield_hp = int(g.f("absorb"))
+			srv_set_status(id, "shield", g.f("duration"), float(inf.shield_hp))
+		&"laser_trap":
+			var mine := traps.filter(func(t): return t.owner == id)
+			if mine.size() >= int(g.f("max_traps")):
+				_srv_remove_trap(mine[0].id)
+			var fwd := Vector3(d.x, 0, d.z)
+			fwd = fwd.normalized() if fwd.length() > 0.01 else Vector3.FORWARD
+			var c := p.global_position + fwd * g.f("dist")
+			var gq := PhysicsRayQueryParameters3D.create(c + Vector3(0, 2, 0), c - Vector3(0, 6, 0), 1)
+			var gr := get_world_3d().direct_space_state.intersect_ray(gq)
+			if gr:
+				c.y = gr.position.y
+			var perp := fwd.cross(Vector3.UP).normalized()
+			var h := Vector3(0, 0.6, 0)
+			trap_counter += 1
+			var t := {"id": trap_counter, "owner": id, "team": inf.team, "a": c + h - perp * g.f("width") * 0.5, "b": c + h + perp * g.f("width") * 0.5, "ends": _now() + g.f("life"), "dmg": int(g.f("damage"))}
+			traps.append(t)
+			c_trap.rpc(t.id, id, inf.team, t.a, t.b)
+		&"drone":
+			srv_set_status(id, "drone", g.f("duration"))
+			for eid in info:
+				if info[eid].team != inf.team and info[eid].alive and players.has(eid) and players[eid].global_position.distance_to(p.global_position) <= g.f("radius"):
+					srv_set_status(eid, "marked", g.f("duration"), float(inf.team))
+		&"power_phase":
+			srv_set_status(id, "phase", g.f("duration"))
+
+func _srv_remove_trap(tid: int) -> void:
+	for i in traps.size():
+		if traps[i].id == tid:
+			traps.remove_at(i)
+			break
+	c_trap_remove.rpc(tid)
+
+func request_ultimate() -> void:
+	if multiplayer.is_server():
+		_srv_ultimate(1)
+	else:
+		srv_ultimate.rpc_id(1)
+
+@rpc("any_peer", "reliable")
+func srv_ultimate() -> void:
+	if multiplayer.is_server():
+		_srv_ultimate(multiplayer.get_remote_sender_id())
+
+func _srv_ultimate(id: int) -> void:
+	if not info.has(id) or match_over or not info[id].alive or srv_has(id, "ult"):
+		return
+	var inf: Dictionary = info[id]
+	var u := UltimateData.get_ultimate(inf.loadout.ultimate)
+	if inf.ult_charge < int(u.f("cost")):
+		return
+	inf.ult_charge = 0
+	c_ult_charge.rpc(id, 0)
+	srv_set_status(id, "ult", u.f("duration"))
+
+func _physics_process(_d: float) -> void:
+	if not net_ready() or not multiplayer.is_server() or match_over:
+		return
+	var now := _now()
+	for t in traps.duplicate():
+		if now > t.ends:
+			_srv_remove_trap(t.id)
+			continue
+		for id in players:
+			if not info.has(id) or not info[id].alive or info[id].team == t.team or srv_has(id, "phase"):
+				continue
+			var p: Player = players[id]
+			var dd := _seg_seg_dist(t.a, t.b, p.global_position + Vector3(0, 0.1, 0), p.global_position + Vector3(0, 1.1, 0))
+			if dd[0] <= 0.3:
+				_srv_remove_trap(t.id)
+				srv_hit(id, t.owner, t.dmg)
+				break
+	for id in info:
+		if not info[id].alive or not srv_has(id, "ult"):
+			continue
+		var u := UltimateData.get_ultimate(info[id].loadout.ultimate)
+		if u.id != &"goddard_jeep" or not players.has(id):
+			continue
+		var me: Player = players[id]
+		for eid in info:
+			if info[eid].team == info[id].team or not info[eid].alive or not players.has(eid) or info[id].ram_cd.get(eid, 0.0) > now:
+				continue
+			var d3: Vector3 = players[eid].global_position - me.global_position
+			if Vector2(d3.x, d3.z).length() <= u.f("ram_radius") and absf(d3.y) < 1.6:
+				info[id].ram_cd[eid] = now + u.f("ram_interval")
+				srv_hit(eid, id, int(u.f("ram_damage")))
+
+# ---------------------------------------------------------------- everyone: loadout / status / fx
+@rpc("authority", "call_local", "reliable")
+func c_loadout(id: int, wire: Dictionary, mhp: int) -> void:
+	if players.has(id):
+		players[id].set_loadout(wire, mhp)
+		if players[id].alive and players[id].hp > mhp:
+			players[id].hp = mhp
+	loadout_changed.emit(id)
+
+@rpc("authority", "call_local", "reliable")
+func c_pending(wire: Dictionary) -> void:
+	var me: Player = players.get(multiplayer.get_unique_id())
+	if me:
+		me.pending_loadout = Loadout.sanitize(wire)
+	loadout_pending.emit()
+
+@rpc("authority", "call_local", "reliable")
+func c_status(id: int, kind: String, dur: float, val: float) -> void:
+	if players.has(id):
+		players[id].set_status(kind, dur, val)
+
+@rpc("authority", "call_local", "reliable")
+func c_ult_charge(id: int, v: int) -> void:
+	if players.has(id):
+		players[id].ult_charge = v
+
+@rpc("authority", "call_local", "unreliable")
+func c_beam(_id: int, a: Vector3, b: Vector3) -> void:
+	var mi := Fx.beam(0.07, Color(0.5, 1.0, 0.4, 0.8))
+	traps_root.add_child(mi)
+	Fx.place_beam(mi, a, b)
+	get_tree().create_timer(0.25).timeout.connect(mi.queue_free)
+
+@rpc("authority", "call_local", "reliable")
+func c_trap(tid: int, _owner: int, team: int, a: Vector3, b: Vector3) -> void:
+	var mi := Fx.beam(0.05, Color(1.0, 0.15, 0.15, 0.9) if team == 1 else Color(0.2, 0.9, 1.0, 0.9))
+	traps_root.add_child(mi)
+	Fx.place_beam(mi, a, b)
+	trap_nodes[tid] = mi
+
+@rpc("authority", "call_local", "reliable")
+func c_trap_remove(tid: int) -> void:
+	if trap_nodes.has(tid):
+		trap_nodes[tid].queue_free()
+		trap_nodes.erase(tid)
