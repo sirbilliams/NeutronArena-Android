@@ -250,11 +250,13 @@ func _gear_input(delta: float) -> void:
 				try_gadget()
 	pad_combo_prev = combo
 
-func try_gadget() -> void:
-	if not alive or gadget_cd > 0.0 or has_status("phase") or cam == null:
+func try_gadget(dir_override := Vector3.ZERO) -> void:
+	if not alive or gadget_cd > 0.0 or has_status("phase"):
+		return
+	if dir_override == Vector3.ZERO and cam == null:
 		return
 	gadget_cd = gadget.f("cooldown")
-	world.request_gadget(muzzle(), aim_direction_from_camera())
+	world.request_gadget(muzzle(), dir_override if dir_override != Vector3.ZERO else aim_direction_from_camera())
 
 func try_ultimate() -> void:
 	if alive and ult_charge >= int(ultimate.f("cost")) and not has_status("ult"):
@@ -552,7 +554,6 @@ func _build_gear() -> void:
 			var fl := Fx.model("ase/n1/fire.glb")
 			if fl:
 				Fx.fit(fl, 0.6)
-				fl.rotation.x = PI
 				fx_jet.add_child(fl)
 			else:
 				var cone := CylinderMesh.new(); cone.top_radius = 0.12; cone.bottom_radius = 0.0; cone.height = 0.5

@@ -20,9 +20,10 @@ func _ready() -> void:
 		elif a.begins_with("--shot="): shot_path = a.substr(7)
 	if test != "":
 		Config.test_mode = true
-		var t = load("res://scripts/net_test.gd").new()
+		var lo_test := test.begins_with("lo_")
+		var t = load("res://scripts/loadout_test.gd" if lo_test else "res://scripts/net_test.gd").new()
 		t.main = self
-		t.role = test
+		t.role = test.substr(3) if lo_test else test
 		add_child(t)
 		return
 	if host:
