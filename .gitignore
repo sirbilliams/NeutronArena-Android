@@ -1,0 +1,9 @@
+.godot/
+*.glb
+*.png
+*.import
+/assets/
+/shots/
+*.gdmp
+*.odmp
+.import/
