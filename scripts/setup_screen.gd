@@ -35,48 +35,56 @@ func _init(can_go_back: bool = false) -> void:
 
 func _ready() -> void:
 	set_anchors_preset(Control.PRESET_FULL_RECT)
-	var bg := ColorRect.new(); bg.color = Color(0.1, 0.12, 0.2); bg.set_anchors_preset(Control.PRESET_FULL_RECT); add_child(bg)
+	add_child(UiBackground.new(true))
 	var center := CenterContainer.new(); center.set_anchors_preset(Control.PRESET_FULL_RECT); add_child(center)
-	var box := VBoxContainer.new(); box.custom_minimum_size = Vector2(760, 0); box.add_theme_constant_override("separation", 14); center.add_child(box)
-	var title := Label.new(); title.text = "SET UP NEUTRON ARENA"; title.add_theme_font_size_override("font_size", 38)
+	var card := PanelContainer.new(); card.theme_type_variation = &"MenuPanel"; card.custom_minimum_size = Vector2(820, 0); center.add_child(card)
+	var box := VBoxContainer.new(); card.add_child(box)
+	var title := Label.new(); title.text = "SET UP NEUTRON ARENA"; title.theme_type_variation = &"Title"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER; box.add_child(title)
-	_info = Label.new(); _info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_info.text = "The game uses the art of your own copies of the PC games. Use the installed port apps if you have them, or choose the CD images (.iso); everything is converted on this device and stays here."
+	_info = Label.new(); _info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART; _info.theme_type_variation = &"Subtitle"
+	_info.text = "The game uses the art of your own copies of the PC games: use the installed port apps if you have them, or choose the CD images (.iso). Everything is converted on this device and stays here."
 	box.add_child(_info)
 	_sources = SharedSources.installed()
-	_add_row(box, 0, "Choose Neutron vs Negatron ISO  (required)")
-	_add_row(box, 1, "Choose Boy Genius ISO  (optional, adds N1 gadgets)")
-	_import_btn = Button.new(); _import_btn.text = "Import"; _import_btn.custom_minimum_size = Vector2(0, 64); _import_btn.disabled = true
+	var cols := HBoxContainer.new(); box.add_child(cols)
+	_add_row(cols, 0, "Choose the Neutron vs Negatron ISO")
+	_add_row(cols, 1, "Choose the Boy Genius ISO")
+	box.add_child(HSeparator.new())
+	_import_btn = Button.new(); _import_btn.text = "IMPORT"; _import_btn.theme_type_variation = &"PrimaryButton"; _import_btn.custom_minimum_size = Vector2(0, 60); _import_btn.disabled = true
 	_import_btn.pressed.connect(_on_import); box.add_child(_import_btn)
 	_prog_box = VBoxContainer.new(); _prog_box.visible = false; box.add_child(_prog_box)
-	_stage_lbl = Label.new(); _prog_box.add_child(_stage_lbl)
-	_stage_bar = ProgressBar.new(); _stage_bar.custom_minimum_size = Vector2(0, 26); _stage_bar.max_value = 1.0; _stage_bar.step = 0.001; _prog_box.add_child(_stage_bar)
-	_all_bar = ProgressBar.new(); _all_bar.custom_minimum_size = Vector2(0, 26); _all_bar.max_value = 1.0; _all_bar.step = 0.001; _prog_box.add_child(_all_bar)
-	_cancel_btn = Button.new(); _cancel_btn.text = "Cancel import"; _cancel_btn.custom_minimum_size = Vector2(0, 56)
+	_stage_lbl = Label.new(); _stage_lbl.theme_type_variation = &"Info"; _prog_box.add_child(_stage_lbl)
+	_stage_bar = ProgressBar.new(); _stage_bar.theme_type_variation = &"ImportBar"; _stage_bar.custom_minimum_size = Vector2(0, 18); _stage_bar.max_value = 1.0; _stage_bar.step = 0.001; _prog_box.add_child(_stage_bar)
+	_all_bar = ProgressBar.new(); _all_bar.theme_type_variation = &"ImportBar"; _all_bar.custom_minimum_size = Vector2(0, 18); _all_bar.max_value = 1.0; _all_bar.step = 0.001; _prog_box.add_child(_all_bar)
+	_cancel_btn = Button.new(); _cancel_btn.text = "Cancel import"; _cancel_btn.theme_type_variation = &"SmallButton"; _cancel_btn.custom_minimum_size = Vector2(0, 44)
 	_cancel_btn.pressed.connect(func(): _imp.cancel()); _prog_box.add_child(_cancel_btn)
-	_err = Label.new(); _err.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART; _err.add_theme_color_override("font_color", Color(1, 0.45, 0.4)); box.add_child(_err)
+	_err = Label.new(); _err.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART; _err.theme_type_variation = &"Danger"; _err.visible = false; box.add_child(_err)
 	if _can_go_back:
-		_back_btn = Button.new(); _back_btn.text = "Back"; _back_btn.custom_minimum_size = Vector2(0, 56)
+		_back_btn = Button.new(); _back_btn.text = "Back"; _back_btn.theme_type_variation = &"SmallButton"; _back_btn.custom_minimum_size = Vector2(0, 48)
 		_back_btn.pressed.connect(func(): finished.emit(false)); box.add_child(_back_btn)
 	_imp = NaImporter.new()
-	(_edits[0].get_parent().get_child(0) as Button).grab_focus()
+	for c in _edits[0].get_parent().get_children():
+		if c is Button:
+			c.grab_focus(); break
 
 func _add_row(parent: Control, slot: int, text: String) -> void:
-	var holder := VBoxContainer.new(); holder.add_theme_constant_override("separation", 4); parent.add_child(holder)
+	var card := PanelContainer.new(); card.theme_type_variation = &"ListPanel"; card.size_flags_horizontal = Control.SIZE_EXPAND_FILL; parent.add_child(card)
+	var holder := VBoxContainer.new(); holder.add_theme_constant_override("separation", 6); card.add_child(holder)
+	var head := Label.new(); head.text = "Neutron vs Negatron" if slot == 0 else "Boy Genius  (optional)"
+	head.theme_type_variation = &"Heading"; head.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART; holder.add_child(head)
 	var game := 2 if slot == 0 else 1
 	for src in _sources:   # installed port apps come first
 		if src["game"] != game: continue
-		var ab := Button.new(); ab.text = "Use files from %s (installed)" % src["name"]; ab.custom_minimum_size = Vector2(0, 64)
+		var ab := Button.new(); ab.text = "Use files from %s (installed)" % src["name"]; ab.custom_minimum_size = Vector2(0, 56)
 		ab.pressed.connect(_pick_app.bind(slot, src)); holder.add_child(ab)
-	var b := Button.new(); b.text = text; b.custom_minimum_size = Vector2(0, 64)
+	var b := Button.new(); b.text = text; b.custom_minimum_size = Vector2(0, 56)
 	b.pressed.connect(_pick.bind(slot)); holder.add_child(b)
 	if OS.get_name() != "Android":
-		var db := Button.new(); db.text = "…or choose an extracted game folder"; db.custom_minimum_size = Vector2(0, 48)
+		var db := Button.new(); db.text = "…or choose an extracted game folder"; db.theme_type_variation = &"SmallButton"; db.custom_minimum_size = Vector2(0, 44)
 		db.pressed.connect(_pick_dir.bind(slot)); holder.add_child(db)
 	var e := LineEdit.new(); e.placeholder_text = "or type / paste the path of the .iso"; e.visible = OS.get_name() != "Android"
 	e.text_submitted.connect(func(t): _set_path(slot, t.strip_edges())); e.focus_exited.connect(func(): _set_path(slot, e.text.strip_edges()))
 	holder.add_child(e)
-	var st := Label.new(); st.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART; holder.add_child(st)
+	var st := Label.new(); st.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART; st.theme_type_variation = &"Dim"; st.custom_minimum_size = Vector2(0, 24); holder.add_child(st)
 	_status.append(st); _edits.append(e)
 
 func _pick(slot: int) -> void:
@@ -97,16 +105,16 @@ func _pick(slot: int) -> void:
 
 func _pick_app(slot: int, src: Dictionary) -> void:
 	if _busy: return
-	_err.text = ""
+	_set_err("")
 	_paths[slot] = ""; _edits[slot].text = ""; _is_dir[slot] = false
 	if not src["ok"]:
 		_app[slot] = ""; _ok[slot] = false
 		_status[slot].text = src["error"]
-		_status[slot].add_theme_color_override("font_color", Color(1, 0.45, 0.4))
+		_status[slot].theme_type_variation = &"Danger"
 	else:
 		_app[slot] = src["pkg"]; _ok[slot] = true
 		_status[slot].text = "OK  -  files from %s (installed)" % src["name"]
-		_status[slot].remove_theme_color_override("font_color")
+		_status[slot].theme_type_variation = &"Success"
 	_import_btn.disabled = not _ok[0]
 
 func _pick_dir(slot: int) -> void:
@@ -137,16 +145,16 @@ func _probe_dir(slot: int, path: String) -> Dictionary:
 func _set_path(slot: int, path: String) -> void:
 	if path == "" or path == _paths[slot] and _ok[slot]: return
 	_paths[slot] = path; _edits[slot].text = path; _app[slot] = ""
-	_err.text = ""
+	_set_err("")
 	_is_dir[slot] = DirAccess.dir_exists_absolute(path)
 	var r: Dictionary = _probe_dir(slot, path) if _is_dir[slot] else _imp.probe_iso(path)
 	_ok[slot] = r.get("ok", false)
 	if _ok[slot]:
 		_status[slot].text = "OK  -  %s%s" % [path.get_file() if not path.begins_with("content:") else "selected file", ("  (" + str(r["label"]) + ")") if r.has("label") else ""]
-		_status[slot].remove_theme_color_override("font_color")
+		_status[slot].theme_type_variation = &"Success"
 	else:
 		_status[slot].text = str(r.get("error", "Can't read that file."))
-		_status[slot].add_theme_color_override("font_color", Color(1, 0.45, 0.4))
+		_status[slot].theme_type_variation = &"Danger"
 	_import_btn.disabled = not _ok[0]
 
 func _on_import() -> void:
@@ -154,9 +162,9 @@ func _on_import() -> void:
 	var tmp := ProjectSettings.globalize_path("user://import_tmp")
 	var free: int = _imp.free_space(tmp)
 	if free >= 0 and free < MIN_FREE_BYTES:
-		_err.text = "Not enough free space: about %d MB are needed while importing (%d MB free)." % [MIN_FREE_BYTES / 1048576, free / 1048576]
+		_set_err("Not enough free space: about %d MB are needed while importing (%d MB free)." % [MIN_FREE_BYTES / 1048576, free / 1048576])
 		return
-	_busy = true; _err.text = ""; _prog_box.visible = true; _import_btn.disabled = true
+	_busy = true; _set_err(""); _prog_box.visible = true; _import_btn.disabled = true; _import_btn.visible = false
 	_set_enabled(false)
 	var out := Config.import_dir()
 	DirAccess.remove_absolute(Config.IMPORT_URL.path_join("import.cfg"))
@@ -203,6 +211,9 @@ static func _rmtree(path: String) -> void:
 	for d in DirAccess.get_directories_at(path): _rmtree(path.path_join(d))
 	DirAccess.remove_absolute(path)
 
+func _set_err(msg: String) -> void:
+	_err.text = msg; _err.visible = msg != ""
+
 func _set_enabled(on: bool) -> void:
 	for e in _edits: e.editable = on
 	for c in find_children("*", "Button", true, false): (c as Button).disabled = not on
@@ -221,7 +232,7 @@ func _process(_d: float) -> void:
 	_stage_bar.value = float(p.get("stage", 0.0)); _all_bar.value = float(p.get("overall", 0.0))
 
 func _finished() -> void:
-	_thread.wait_to_finish(); _busy = false; _set_enabled(true)
+	_thread.wait_to_finish(); _busy = false; _set_enabled(true); _import_btn.visible = true
 	if _result.get("ok", false):
 		var cf := ConfigFile.new()
 		cf.set_value("import", "version", Config.IMPORT_VERSION)
@@ -232,5 +243,5 @@ func _finished() -> void:
 		_stage_lbl.text = "Done"; _all_bar.value = 1.0; _stage_bar.value = 1.0
 		finished.emit(true)
 	else:
-		_err.text = str(_result.get("error", "Import failed."))
+		_set_err(str(_result.get("error", "Import failed.")))
 		_prog_box.visible = false

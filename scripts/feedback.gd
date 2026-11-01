@@ -137,12 +137,10 @@ func _on_died(id: int, killer: int) -> void:
 
 func _name_label(p: Player, id: int) -> Label:
 	var l := Label.new()
-	l.add_theme_font_size_override("font_size", 20)
-	l.add_theme_constant_override("outline_size", 6)
-	l.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
+	l.theme_type_variation = &"HudFeed"
 	if p:
 		l.text = "%s_%d" % [Config.TEAM_NAMES[p.team], id]
-		l.add_theme_color_override("font_color", Config.TEAM_COLORS[p.team])
+		l.add_theme_color_override("font_color", UiTheme.team_color(p.team))   # semantic team colour of the theme, per row
 	else:
 		l.text = "WORLD" if id == 0 else "PLAYER_%d" % id
 	return l

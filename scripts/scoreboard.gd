@@ -8,11 +8,12 @@ var panel: PanelContainer
 func _ready() -> void:
 	layer = 5
 	panel = PanelContainer.new()
+	panel.theme_type_variation = &"ScoreboardPanel"
 	panel.set_anchors_preset(Control.PRESET_CENTER)
 	panel.position = Vector2(-300, -170)
 	panel.visible = false
 	label = Label.new()
-	label.add_theme_font_size_override("font_size", 18)
+	label.theme_type_variation = &"Mono"
 	panel.add_child(label)
 	add_child(panel)
 

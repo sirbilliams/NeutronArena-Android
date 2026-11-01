@@ -7,5 +7,5 @@ cat > "$inner" <<EOF
 exec flatpak run --socket=wayland --env=WAYLAND_DISPLAY=\$WAYLAND_DISPLAY org.godotengine.Godot --display-driver wayland --rendering-method forward_plus --path $(dirname "$0")/.. $@
 EOF
 chmod +x "$inner"
-timeout ${VRUN_TIMEOUT:-120} kwin_wayland --virtual --no-lockscreen --width 1280 --height 720 --socket wl-arena-$$ "$inner"
+timeout ${VRUN_TIMEOUT:-120} kwin_wayland --virtual --no-lockscreen --width ${VRUN_W:-1280} --height ${VRUN_H:-720} --socket wl-arena-$$ "$inner"
 rm -f "$inner"

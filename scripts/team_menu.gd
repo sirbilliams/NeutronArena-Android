@@ -10,10 +10,7 @@ var _btns: Array[Button] = []
 var _cancel: Button
 
 func _ready() -> void:
-	var bg := ColorRect.new()
-	bg.color = Color(0.05, 0.07, 0.14, 0.92)
-	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
-	add_child(bg)
+	add_child(UiBackground.new(false))   # themed overlay, follows live theme changes
 	var box := VBoxContainer.new()
 	box.set_anchors_preset(Control.PRESET_CENTER)
 	box.custom_minimum_size = Vector2(560, 0)
@@ -22,29 +19,26 @@ func _ready() -> void:
 	add_child(box)
 	_title = Label.new()
 	_title.text = "CHOOSE YOUR TEAM"
-	_title.add_theme_font_size_override("font_size", 38)
+	_title.theme_type_variation = &"Title"
 	_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(_title)
 	_info = Label.new()
 	_info.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_info.modulate = Color(1, 0.85, 0.4)
+	_info.theme_type_variation = &"Info"
 	_info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_info.custom_minimum_size = Vector2(0, 30)
 	box.add_child(_info)
 	for t in [Config.TEAM_JIMMY, Config.TEAM_NEGATRON, -1]:
 		var b := Button.new()
 		b.custom_minimum_size = Vector2(0, 84)
-		b.add_theme_font_size_override("font_size", 30)
-		if t >= 0:
-			b.add_theme_color_override("font_color", Config.TEAM_COLORS[t].lightened(0.3))
-			b.add_theme_color_override("font_focus_color", Config.TEAM_COLORS[t].lightened(0.6))
+		b.theme_type_variation = [&"TeamJimmyButton", &"TeamNegatronButton", &"PrimaryButton"][t if t >= 0 else 2]
 		b.pressed.connect(func(): chosen.emit(t))
 		box.add_child(b)
 		_btns.append(b)
 	_cancel = Button.new()
 	_cancel.text = "BACK"
 	_cancel.custom_minimum_size = Vector2(0, 52)
-	_cancel.add_theme_font_size_override("font_size", 24)
+	_cancel.theme_type_variation = &"SmallButton"
 	_cancel.pressed.connect(func(): cancelled.emit())
 	box.add_child(_cancel)
 	set_counts([0, 0])

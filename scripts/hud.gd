@@ -23,32 +23,35 @@ var first_pending := true
 
 func _ready() -> void:
 	score_label = Label.new()
-	score_label.add_theme_font_size_override("font_size", 28)
+	score_label.theme_type_variation = &"HudScore"
 	score_label.set_anchors_preset(Control.PRESET_CENTER_TOP)
 	score_label.position = Vector2(-180, 10)
 	add_child(score_label)
 	hp_bar = ProgressBar.new()
+	hp_bar.theme_type_variation = &"HpBar"
 	hp_bar.max_value = Config.MAX_HP
 	hp_bar.custom_minimum_size = Vector2(260, 22)
 	hp_bar.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
 	hp_bar.position = Vector2(30, -50)
 	add_child(hp_bar)
 	kd_label = Label.new()
+	kd_label.theme_type_variation = &"HudLabel"
 	kd_label.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
 	kd_label.position = Vector2(30, -80)
 	add_child(kd_label)
 	cross = Label.new()
 	cross.text = "+"
-	cross.add_theme_font_size_override("font_size", 28)
+	cross.theme_type_variation = &"HudCross"
 	cross.set_anchors_preset(Control.PRESET_CENTER)
 	cross.position = Vector2(8, -18)
 	add_child(cross)
 	banner = Label.new()
-	banner.add_theme_font_size_override("font_size", 44)
+	banner.theme_type_variation = &"HudBanner"
 	banner.set_anchors_preset(Control.PRESET_CENTER)
 	banner.position = Vector2(-250, -140)
 	add_child(banner)
 	gear_label = Label.new()
+	gear_label.theme_type_variation = &"HudLabel"
 	gear_label.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
 	gear_label.position = Vector2(30, -140)
 	add_child(gear_label)
@@ -57,13 +60,14 @@ func _ready() -> void:
 	fuel_bar.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
 	fuel_bar.position = Vector2(30, -26)
 	fuel_bar.show_percentage = false
-	fuel_bar.modulate = Color(1, 0.7, 0.2)
+	fuel_bar.theme_type_variation = &"FuelBar"
 	add_child(fuel_bar)
 	ult_bar = ProgressBar.new()
 	ult_bar.custom_minimum_size = Vector2(260, 12)
 	ult_bar.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
 	ult_bar.position = Vector2(30, -110)
 	ult_bar.show_percentage = false
+	ult_bar.theme_type_variation = &"UltBar"
 	add_child(ult_bar)
 	menu = (load("res://scenes/loadout_menu.tscn") as PackedScene).instantiate() as LoadoutMenu
 	menu.visible = false
@@ -83,6 +87,7 @@ func _ready() -> void:
 	feedback.world = world
 	add_child(feedback)
 	info_label = Label.new()
+	info_label.theme_type_variation = &"HudLabel"
 	info_label.set_anchors_preset(Control.PRESET_TOP_LEFT)
 	info_label.position = Vector2(10, 10)
 	add_child(info_label)
@@ -114,7 +119,7 @@ func _process(_d: float) -> void:
 		var cost := int(me.ultimate.f("cost"))
 		ult_bar.max_value = cost
 		ult_bar.value = me.ult_charge
-		ult_bar.modulate = Color(1, 0.9, 0.2) if me.ult_charge >= cost else Color(0.5, 0.7, 1.0)
+		ult_bar.theme_type_variation = &"UltBarReady" if me.ult_charge >= cost else &"UltBar"
 		var fmax := me.movement.f("fuel")
 		fuel_bar.visible = fmax > 0.0
 		fuel_bar.max_value = maxf(fmax, 1.0)

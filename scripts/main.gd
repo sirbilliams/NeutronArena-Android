@@ -66,78 +66,145 @@ func _build_menu() -> void:
 	menu = Control.new()
 	menu.set_anchors_preset(Control.PRESET_FULL_RECT)
 	add_child(menu)
-	var bg := ColorRect.new()
-	bg.color = Color(0.1, 0.12, 0.2)
-	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
-	menu.add_child(bg)
+	menu.add_child(UiBackground.new(true))
+	var center := CenterContainer.new()
+	center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	menu.add_child(center)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 24)
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	center.add_child(row)
+	# main card
+	var card := PanelContainer.new()
+	card.theme_type_variation = &"MenuPanel"
+	card.custom_minimum_size = Vector2(440, 0)
+	card.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(card)
 	var box := VBoxContainer.new()
-	box.set_anchors_preset(Control.PRESET_CENTER)
-	box.custom_minimum_size = Vector2(420, 0)
-	box.position = Vector2(-210, -200)
-	box.add_theme_constant_override("separation", 12)
-	menu.add_child(box)
+	card.add_child(box)
 	var title := Label.new()
 	title.text = "NEUTRON ARENA"
-	title.add_theme_font_size_override("font_size", 40)
+	title.theme_type_variation = &"Title"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(title)
 	var sub := Label.new()
-	sub.text = "Jimmy vs Negatron - 5v5 bubble gun deathmatch"
+	sub.text = "Jimmy vs Negatron  -  5v5 bubble gun deathmatch"
+	sub.theme_type_variation = &"Subtitle"
 	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(sub)
-	var quick_btn := Button.new(); quick_btn.text = "Quick Play"
-	quick_btn.custom_minimum_size = Vector2(0, 56)
+	box.add_child(HSeparator.new())
+	var quick_btn := Button.new(); quick_btn.text = "QUICK PLAY"
+	quick_btn.theme_type_variation = &"PrimaryButton"
+	quick_btn.custom_minimum_size = Vector2(0, 60)
 	quick_btn.pressed.connect(quick_play)
 	box.add_child(quick_btn)
 	var host_btn := Button.new(); host_btn.text = "Host game"
 	host_btn.pressed.connect(func(): Config.save_settings(); start_host())
 	box.add_child(host_btn)
+	var join_btn := Button.new(); join_btn.text = "Join game  (LAN list / IP)"
+	join_btn.pressed.connect(_show_join)
+	box.add_child(join_btn)
 	var bots_row := HBoxContainer.new()
 	box.add_child(bots_row)
 	var bots_cb := CheckBox.new(); bots_cb.text = "Bots: fill to 5v5"
+	bots_cb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	bots_cb.button_pressed = Config.bots_enabled
 	bots_cb.toggled.connect(func(on: bool): Config.bots_enabled = on)
 	bots_row.add_child(bots_cb)
 	var diff := OptionButton.new()
+	diff.custom_minimum_size = Vector2(150, 0)
 	for d in ["easy", "normal", "hard"]:
-		diff.add_item(d)
+		diff.add_item(d.capitalize())
 	diff.selected = ["easy", "normal", "hard"].find(Config.bot_difficulty)
-	diff.item_selected.connect(func(i: int): Config.bot_difficulty = diff.get_item_text(i))
+	diff.item_selected.connect(func(i: int): Config.bot_difficulty = ["easy", "normal", "hard"][i])
 	bots_row.add_child(diff)
-	var join_btn := Button.new(); join_btn.text = "Join game (LAN list / IP)"
-	join_btn.pressed.connect(_show_join)
-	box.add_child(join_btn)
-	var reimp := Button.new(); reimp.text = "Re-import game files (Neutron / Boy Genius ISO)"
-	reimp.pressed.connect(func(): _show_setup(true))
-	box.add_child(reimp)
-	var al := Label.new(); al.text = "Dev: asset folder with exported glbs (optional, instead of the import):"
-	box.add_child(al)
-	var ad := LineEdit.new(); ad.text = Config.asset_dir
-	ad.text_changed.connect(func(t): Config.asset_dir = t; Config.dev_asset_dir = t; Config.save_settings(); _check_assets())
-	box.add_child(ad)
+	box.add_child(_theme_row())
+	var quit := Button.new(); quit.text = "Quit"
+	quit.theme_type_variation = &"SmallButton"
+	quit.pressed.connect(func(): get_tree().quit())
+	box.add_child(quit)
+	# game files card
+	var side := PanelContainer.new()
+	side.theme_type_variation = &"SidePanel"
+	side.custom_minimum_size = Vector2(380, 0)
+	side.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(side)
+	var sbox := VBoxContainer.new()
+	side.add_child(sbox)
+	var sh := Label.new(); sh.text = "GAME FILES"; sh.theme_type_variation = &"Heading"
+	sbox.add_child(sh)
 	status = Label.new()
 	status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	box.add_child(status)
+	status.theme_type_variation = &"Info"
+	sbox.add_child(status)
+	var reimp := Button.new(); reimp.text = "Re-import game files"
+	reimp.theme_type_variation = &"SmallButton"
+	reimp.pressed.connect(func(): _show_setup(true))
+	sbox.add_child(reimp)
+	var rl := Label.new(); rl.text = "Neutron vs Negatron / Boy Genius CD images, converted on this device."
+	rl.theme_type_variation = &"Dim"; rl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	sbox.add_child(rl)
+	sbox.add_child(HSeparator.new())
+	var al := Label.new(); al.text = "Dev: folder with exported glbs (optional, instead of the import):"
+	al.theme_type_variation = &"Dim"; al.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	sbox.add_child(al)
+	var ad := LineEdit.new(); ad.text = Config.asset_dir
+	ad.placeholder_text = "asset folder"
+	ad.text_changed.connect(func(t): Config.asset_dir = t; Config.dev_asset_dir = t; Config.save_settings(); _check_assets())
+	sbox.add_child(ad)
 	var retry := Button.new(); retry.text = "Check again"
+	retry.theme_type_variation = &"SmallButton"
 	retry.pressed.connect(func():
 		if OS.get_name() == "Android" and not Config.imported_ok():
 			Config.request_android_storage()
 			Config.find_android_assets()
 		ad.text = Config.asset_dir
 		_check_assets())
-	box.add_child(retry)
-	var quit := Button.new(); quit.text = "Quit"
-	quit.pressed.connect(func(): get_tree().quit())
-	box.add_child(quit)
+	sbox.add_child(retry)
 	_check_assets()
 	quick_btn.grab_focus()
+
+## "Theme  <  name  >" row: A / tap = next theme, d-pad left/right = previous/next. Applies live and saves.
+var _theme_btn: Button
+
+func _theme_row() -> HBoxContainer:
+	var r := HBoxContainer.new()
+	var l := Label.new(); l.text = "Theme"
+	l.theme_type_variation = &"Subtitle"
+	l.custom_minimum_size = Vector2(90, 0)
+	l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	r.add_child(l)
+	_theme_btn = Button.new()
+	_theme_btn.theme_type_variation = &"CycleButton"
+	_theme_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_theme_btn.pressed.connect(func(): _step_theme(1))
+	_theme_btn.gui_input.connect(func(e: InputEvent):
+		if e.is_action_pressed("ui_left"):
+			_step_theme(-1); _theme_btn.accept_event()
+		elif e.is_action_pressed("ui_right"):
+			_step_theme(1); _theme_btn.accept_event())
+	r.add_child(_theme_btn)
+	_update_theme_btn()
+	Config.theme_changed.connect(func(_id): _update_theme_btn())
+	return r
+
+func _step_theme(d: int) -> void:
+	var i := UiTheme.IDS.find(Config.theme_id)
+	Config.set_theme(UiTheme.IDS[posmod(i + d, UiTheme.IDS.size())])
+	_update_theme_btn()
+
+func _update_theme_btn() -> void:
+	if _theme_btn:
+		_theme_btn.text = "<   %s   >" % UiTheme.display_name(Config.theme_id)
 
 func _check_assets() -> void:
 	if status:
 		if Config.assets_ok():
-			status.text = "" if Config.has_n1() else "Game files OK. Boy Genius ISO not imported: N1 gadgets use simple placeholder models (use Re-import to add it)."
+			status.text = "Game files OK (both discs imported)." if Config.has_n1() else "Game files OK. Boy Genius ISO not imported: N1 gadgets use simple placeholder models (use Re-import to add it)."
+			status.theme_type_variation = &"Success" if Config.has_n1() else &"Info"
 		else:
 			status.text = "Game files not found. Use \"Re-import game files\" to pick your CD images."
+			status.theme_type_variation = &"Danger"
 
 func _enter_game() -> bool:
 	if not Config.assets_ok():

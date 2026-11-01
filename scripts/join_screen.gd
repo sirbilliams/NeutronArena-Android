@@ -10,39 +10,46 @@ var ip_edit: LineEdit
 var _sig := ""
 
 func _ready() -> void:
-	var bg := ColorRect.new()
-	bg.color = Color(0.1, 0.12, 0.2)
-	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
-	add_child(bg)
+	add_child(UiBackground.new(true))
+	var center := CenterContainer.new()
+	center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	add_child(center)
+	var card := PanelContainer.new()
+	card.theme_type_variation = &"MenuPanel"
+	card.custom_minimum_size = Vector2(640, 0)
+	center.add_child(card)
 	var box := VBoxContainer.new()
-	box.set_anchors_preset(Control.PRESET_CENTER)
-	box.custom_minimum_size = Vector2(560, 0)
-	box.position = Vector2(-280, -250)
-	box.add_theme_constant_override("separation", 10)
-	add_child(box)
+	card.add_child(box)
 	var title := Label.new()
 	title.text = "JOIN GAME"
-	title.add_theme_font_size_override("font_size", 38)
+	title.theme_type_variation = &"Title"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(title)
 	status = Label.new()
+	status.theme_type_variation = &"Info"
 	status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(status)
+	var lp := PanelContainer.new()
+	lp.theme_type_variation = &"ListPanel"
+	lp.custom_minimum_size = Vector2(0, 150)
+	box.add_child(lp)
 	list = VBoxContainer.new()
-	list.add_theme_constant_override("separation", 8)
-	box.add_child(list)
+	lp.add_child(list)
 	var ml := Label.new(); ml.text = "Or enter an address:"
+	ml.theme_type_variation = &"Subtitle"
 	box.add_child(ml)
 	ip_edit = LineEdit.new()
 	ip_edit.text = Config.last_ip
 	ip_edit.placeholder_text = "Server IP"
 	box.add_child(ip_edit)
-	var jb := Button.new(); jb.text = "Join this address"
+	var jb := Button.new(); jb.text = "JOIN THIS ADDRESS"
+	jb.theme_type_variation = &"PrimaryButton"
 	jb.custom_minimum_size = Vector2(0, 56)
 	jb.pressed.connect(func(): Config.last_ip = ip_edit.text; join_requested.emit(ip_edit.text, Config.PORT))
 	box.add_child(jb)
 	var bb := Button.new(); bb.text = "Back"
-	bb.custom_minimum_size = Vector2(0, 56)
+	bb.theme_type_variation = &"SmallButton"
+	bb.custom_minimum_size = Vector2(0, 48)
 	bb.pressed.connect(func(): back.emit())
 	box.add_child(bb)
 	_refresh()
@@ -74,8 +81,8 @@ func _refresh() -> void:
 	for g in games:
 		var b := Button.new()
 		b.text = "%s   %d players (+%d bots)   %s" % [g.name, g.players, g.bots, g.ip]
-		b.custom_minimum_size = Vector2(0, 64)
-		b.add_theme_font_size_override("font_size", 22)
+		b.custom_minimum_size = Vector2(0, 60)
+		b.theme_type_variation = &"ListButton"
 		var ip: String = g.ip
 		var port: int = g.port
 		b.pressed.connect(func(): join_requested.emit(ip, port))

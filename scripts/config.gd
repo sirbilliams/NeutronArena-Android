@@ -21,6 +21,8 @@ var beacon_port := BEACON_PORT
 var bots_enabled := true     # host option: fill both teams to 5 with bots
 var bot_difficulty := "normal"   # easy / normal / hard
 var last_loadout := {}       # last confirmed loadout (Quick Play reuses it)
+var theme_id: StringName = UiTheme.DEFAULT   # menu/HUD theme (scripts/ui_theme.gd), saved in settings.cfg [ui]
+signal theme_changed(id: StringName)
 
 ## Android: folders searched for the game export (first one that has the files wins). Needs "All files access"
 ## (or adb push into the app folder below, which needs no permission).
@@ -58,6 +60,10 @@ func _ready() -> void:
 		bots_enabled = cf.get_value("game", "bots", bots_enabled)
 		bot_difficulty = cf.get_value("game", "bot_difficulty", bot_difficulty)
 		last_loadout = cf.get_value("game", "last_loadout", last_loadout)
+		theme_id = StringName(str(cf.get_value("ui", "theme", String(theme_id))))
+	if not UiTheme.valid(theme_id):
+		theme_id = UiTheme.DEFAULT
+	UiTheme.apply(theme_id)
 	asset_dir = dev_asset_dir
 	if imported_ok():
 		asset_dir = import_dir()
@@ -79,7 +85,17 @@ func save_settings() -> void:
 	cf.set_value("game", "bots", bots_enabled)
 	cf.set_value("game", "bot_difficulty", bot_difficulty)
 	cf.set_value("game", "last_loadout", last_loadout)
+	cf.set_value("ui", "theme", String(theme_id))
 	cf.save(SETTINGS)
+
+## Switch the UI theme live (every Control re-reads the theme) and remember it.
+func set_theme(id: StringName) -> void:
+	if not UiTheme.valid(id):
+		return
+	theme_id = id
+	UiTheme.apply(id)
+	save_settings()
+	theme_changed.emit(id)
 
 ## Android: ask for storage access (runtime + All-files access declared in the export preset).
 func request_android_storage() -> void:
