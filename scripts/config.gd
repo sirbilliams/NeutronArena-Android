@@ -16,8 +16,18 @@ var asset_dir := ""
 var last_ip := "127.0.0.1"
 var test_mode := false   # headless tests: no local input
 
+## Android: folders searched for the game export (first one that has the files wins). Needs "All files access"
+## (or adb push into the app folder below, which needs no permission).
+const ANDROID_ASSET_DIRS := [
+	"/sdcard/NegatronArena",
+	"/storage/emulated/0/NegatronArena",
+	"/sdcard/Android/data/com.negatronarena.game/files/NegatronArena",
+]
+
 func _ready() -> void:
 	asset_dir = OS.get_environment("HOME").path_join("Projects/arena-assets")
+	if OS.get_name() == "Android":
+		asset_dir = ANDROID_ASSET_DIRS[0]
 	var cf := ConfigFile.new()
 	if cf.load(SETTINGS) == OK:
 		asset_dir = cf.get_value("game", "asset_dir", asset_dir)
@@ -25,6 +35,8 @@ func _ready() -> void:
 	var env := OS.get_environment("NEGATRON_ASSETS")
 	if env != "":
 		asset_dir = env
+	if OS.get_name() == "Android":
+		find_android_assets()
 	_setup_input()
 
 func save_settings() -> void:
@@ -32,6 +44,21 @@ func save_settings() -> void:
 	cf.set_value("game", "asset_dir", asset_dir)
 	cf.set_value("game", "last_ip", last_ip)
 	cf.save(SETTINGS)
+
+## Android: ask for storage access (runtime + All-files access declared in the export preset).
+func request_android_storage() -> void:
+	if OS.get_name() == "Android":
+		OS.request_permissions()
+
+## Android: switch asset_dir to the first candidate folder that holds the game files; returns true if found.
+func find_android_assets() -> bool:
+	for d in [asset_dir] + ANDROID_ASSET_DIRS:
+		var old := asset_dir
+		asset_dir = d
+		if assets_ok():
+			return true
+		asset_dir = old
+	return false
 
 func asset_path(rel: String) -> String:
 	return asset_dir.path_join(rel)
