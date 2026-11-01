@@ -5,7 +5,7 @@ var main: Node
 var role := ""
 var world: World
 var fails: Array[String] = []
-var ev := {"hurt": 0, "died": 0, "respawn": 0, "over": false, "reset": false}
+var ev := {"hit_mine": 0, "hit_kill": 0, "hit_on_me": 0, "hurt": 0, "died": 0, "respawn": 0, "over": false, "reset": false}
 
 func check(cond: bool, msg: String) -> void:
 	print("  [%s] %s" % ["ok" if cond else "FAIL", msg])
@@ -42,6 +42,7 @@ func _server() -> void:
 	check(await main.start_host(), "host started")
 	world = main.world
 	var exp := _expected_players()
+	world.hit_event.connect(func(_v, sh, _d, pos, killed): if sh == 1 and pos != Vector3.ZERO: ev.hit_mine += 1; ev.hit_kill += int(killed))
 	var manual := OS.get_cmdline_user_args().has("--manual_team")
 	_team_rule_checks()
 	if manual:
@@ -79,6 +80,7 @@ func _server() -> void:
 		_shoot(me, victim)
 	await get_tree().create_timer(0.8).timeout
 	check(not world.info[victim_id].alive, "victim dead after 5 hits")
+	check(ev.hit_mine >= 5 and ev.hit_kill == 1, "shooter received hit_event for each hit (%d) incl. one kill flag" % ev.hit_mine)
 	check(world.team_score[0] == 1 and world.team_score[1] == 0, "score Jimmy 1 - 0 (%s)" % str(world.team_score))
 	check(world.info[1].kills == 1, "host has 1 kill")
 	await get_tree().create_timer(Config.RESPAWN_TIME + 0.4).timeout
@@ -143,6 +145,7 @@ func _client() -> void:
 		await get_tree().create_timer(2.0).timeout
 		check(not world.players.has(multiplayer.get_unique_id()), "client not spawned before choosing a team")
 		world.request_team(Config.TEAM_NEGATRON)
+	world.hit_event.connect(func(v, _sh, d, _p, _k): if v == multiplayer.get_unique_id() and d > 0: ev.hit_on_me += 1)
 	world.player_hurt.connect(func(id, hp): if id == multiplayer.get_unique_id() and hp < Config.MAX_HP: ev.hurt += 1)
 	world.player_died.connect(func(id, _k): if id == multiplayer.get_unique_id(): ev.died += 1)
 	world.player_respawned.connect(func(id): if id == multiplayer.get_unique_id(): ev.respawn += 1)
@@ -159,6 +162,7 @@ func _client() -> void:
 	check(me.global_position.distance_to(p0) > 2.0, "client moved %.1f m" % me.global_position.distance_to(p0))
 	check(await wait_for(func(): return ev.died >= 1, 40.0), "client saw own death")
 	check(ev.hurt >= 4, "client saw %d hp updates" % ev.hurt)
+	check(ev.hit_on_me >= 5, "victim received hit_event for each hit (%d)" % ev.hit_on_me)
 	check(await wait_for(func(): return ev.respawn >= 1, 10.0), "client respawned")
 	await get_tree().create_timer(1.0).timeout
 	var host: Player = world.players[1]

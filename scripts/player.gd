@@ -32,8 +32,8 @@ const LOOK_RAMP_TIME := 0.35    # seconds at full deflection until stick look re
 const LOOK_BOOST := 0.6
 const INTERP_DELAY := 0.1       # remote players are rendered this far in the past
 const WALK_ENTER := 0.25
-const RUN_ENTER := 2.7
-const RUN_EXIT := 2.4
+const RUN_ENTER := 1.2
+const RUN_EXIT := 1.0
 
 var peer_id := 0
 var team := 0
@@ -66,6 +66,24 @@ var pad_combo_prev := false
 var base_scale := 1.0
 var gear: Node3D
 var fx_jet: Node3D
+# --- feel (strafe twist, flinch, death pop, muzzle flash)
+const TW_MAX := 1.0            # rad, max leg turn away from the aim direction while strafing (torso counter-rotates)
+const FLINCH_TIME := 0.2
+const POP_TIME := 0.4
+var feel_mod: FeelMod
+var vel_h := Vector2.ZERO       # horizontal velocity estimate (x, z)
+var _prev_pos := Vector3.ZERO
+var strafe_t := 0.0
+var strafe_on := false
+var strafe_rev := false         # legs play backwards (backpedal)
+var tw_cur := 0.0
+var flinch_t := 0.0
+var flinch_side := 0.0
+var dying := 0.0                # >0 while the death pop plays
+var flash: Node3D
+var flash_t := 0.0
+var flash_peak := 0.07
+var jet_k := 0.0
 var fx_shield: Node3D
 var fx_ship: Node3D
 var scooter_model: Node3D   # Negatron riding his own scooter (swapped in during the ultimate)
@@ -227,11 +245,17 @@ func _build_model() -> void:
 		other.free()
 		anim_idle = "nummeystop"; anim_run = "nummeyrun"; anim_walk = "nummeywalk"; anim_fall = ""; anim_jump = ""; anim_fly = "nummeyfly"   # numflyair is a tumble loop: not used; Negatron holds a run frame in the air
 	AnimFix.fix_player(anim)
-	anim.deterministic = true   # tracks a clip does not key blend back to the rest pose (jump/fly clips key extra bones)
+	# NOT deterministic: AnimationPlayer.deterministic made every crossfade swing the spine/head ~20 deg for the blend time then snap back (found with tools/walkprobe.gd).
+	# AnimFix.fix_player gives every clip the union of all tracks (missing ones = rest pose) so un-keyed bones still fall back to rest.
 	for n in anim.get_animation_list():
 		anim.get_animation(n).loop_mode = Animation.LOOP_LINEAR
 	if anim.has_animation(anim_jump) and anim_jump == "jimmyjump":
 		anim.get_animation(anim_jump).loop_mode = Animation.LOOP_NONE   # plays once, then holds the last pose
+	var sks := model.find_children("*", "Skeleton3D", true, false)
+	if sks.size() > 0:
+		feel_mod = FeelMod.new()
+		feel_mod.name = "FeelMod"
+		sks[0].add_child(feel_mod)
 	_play(anim_idle)
 
 func _play(n: String, spd := 1.0, blend := 0.18) -> void:
@@ -697,14 +721,18 @@ func _animate() -> void:
 	var dt := get_physics_process_delta_time()
 	var shr := 0.5 if has_status("shrink") else 1.0
 	cur_shrink = lerpf(cur_shrink, shr, 1.0 - exp(-10.0 * dt))
+	_update_feel(dt)
+	var pk := 1.0 if alive else clampf(dying / POP_TIME, 0.0, 1.0)
+	pk = pk * pk * (3.0 - 2.0 * pk) if not alive else 1.0
+	var show_body := alive or dying > 0.0
 	if model:
-		model.rotation.y = model_yaw + MODEL_YAW
+		model.rotation.y = model_yaw + MODEL_YAW + tw_cur
 		var neg_sc := scooter_model != null and ult_is(&"goddard_scooter")
 		if jim_scooter:
 			jim_scooter.visible = alive and ult_is(&"goddard_scooter")
 			jim_scooter.rotation.y = model_yaw + MODEL_YAW - PI / 2.0   # scooter.glb length axis is Z, jimmybase faces X natively
 			jim_scooter.scale = Vector3.ONE * base_scale * cur_shrink
-		model.visible = alive and not ult_is(&"rocket_ship") and not neg_sc
+		model.visible = show_body and not ult_is(&"rocket_ship") and not neg_sc
 		if scooter_model:
 			scooter_model.visible = alive and neg_sc
 			scooter_model.rotation.y = model_yaw + MODEL_YAW
@@ -712,11 +740,11 @@ func _animate() -> void:
 			scooter_model.position.y = scooter_off * base_scale * cur_shrink
 			if neg_sc and scooter_anim and scooter_anim.current_animation != "nummeyscooter":
 				scooter_anim.play("nummeyscooter")
-		model.scale = Vector3.ONE * base_scale * cur_shrink
+		model.scale = Vector3.ONE * base_scale * cur_shrink * pk
 	if gear:
 		gear.rotation.y = model_yaw
-		gear.scale = Vector3.ONE * cur_shrink
-		gear.visible = alive
+		gear.scale = Vector3.ONE * cur_shrink * pk
+		gear.visible = show_body
 	_update_fx()
 	_update_gun()
 	if label:
@@ -734,9 +762,9 @@ func _animate() -> void:
 			&"idle":
 				_play(anim_idle, 1.0)
 			&"walk":
-				_play(anim_walk, clampf(h_speed / maxf(FootTable.gs(anim_walk), 0.1), 0.5, 2.4))
+				_play(anim_walk, _gait_speed(anim_walk, 0.5, 2.0))
 			&"run":
-				_play(anim_run, clampf(h_speed / maxf(FootTable.gs(anim_run), 0.1), 0.7, 2.4))
+				_play(anim_run, _gait_speed(anim_run, 0.45, 2.4))
 			&"air":
 				var vy := velocity.y if is_local else vy_est
 				var fl := eff_flags()
@@ -756,7 +784,102 @@ func _animate() -> void:
 		lift_cur = lerpf(lift_cur, tgt, 1.0 - exp(-14.0 * dt))
 	vis_off *= exp(-14.0 * dt)
 	if model:
-		model.position.y = lift_cur * cur_shrink + vis_off
+		model.position.y = lift_cur * cur_shrink + vis_off + (1.0 - pk) * 0.7
+
+## Playback speed of a walk / run clip: ground speed matched (planted foot does not slide); negative = backpedal; strafe leg turn is compensated.
+func _gait_speed(clip: String, lo: float, hi: float) -> float:
+	var sp := h_speed / maxf(FootTable.gs(clip), 0.1)
+	if strafe_on:
+		sp /= maxf(cos(_strafe_resid), 0.55)
+	sp = clampf(sp, lo, hi)
+	return -sp if strafe_rev else sp
+
+var _strafe_resid := 0.0
+
+## Strafe / backpedal: when the body faces the aim but the velocity points elsewhere, turn the legs towards the move direction
+## (hip twist, torso counter-rotated by FeelMod) and play the clip backwards for backpedal. Also the flinch envelope.
+func _update_feel(dt: float) -> void:
+	if is_local:
+		vel_h = Vector2(velocity.x, velocity.z)
+	else:
+		vel_h = vel_h.lerp(Vector2(position.x - _prev_pos.x, position.z - _prev_pos.z) / maxf(dt, 0.001), 0.35)
+	_prev_pos = position
+	var walking := (gait == &"walk" or gait == &"run") and alive and not ult_is(&"goddard_scooter") and not ult_is(&"rocket_ship")
+	var spd := vel_h.length()
+	var tw_tgt := 0.0
+	_strafe_resid = 0.0
+	if walking and spd > 0.6:
+		var heading := atan2(-vel_h.x, -vel_h.y)
+		var e_raw := absf(angle_difference(model_yaw, heading))
+		if e_raw > (0.45 if strafe_on else 0.6):
+			strafe_t += dt
+		else:
+			strafe_t = 0.0
+		strafe_on = strafe_t > 0.18 or (strafe_on and e_raw > 0.45)
+		if strafe_on:
+			strafe_rev = e_raw > (PI * 0.5 - 0.2 if strafe_rev else PI * 0.5 + 0.2)
+			var e_leg := angle_difference(model_yaw, heading + (PI if strafe_rev else 0.0))
+			tw_tgt = clampf(e_leg, -TW_MAX, TW_MAX)
+			_strafe_resid = e_leg - tw_cur
+	else:
+		strafe_on = false
+		strafe_rev = false
+		strafe_t = 0.0
+	tw_cur = lerpf(tw_cur, tw_tgt, 1.0 - exp(-12.0 * dt))
+	flinch_t = maxf(0.0, flinch_t - dt)
+	if feel_mod:
+		feel_mod.twist = tw_cur
+		feel_mod.facing = model_yaw
+		feel_mod.flinch = sin(PI * (1.0 - flinch_t / FLINCH_TIME)) if flinch_t > 0.0 else 0.0
+		feel_mod.flinch_side = flinch_side
+	dying = maxf(0.0, dying - dt)
+
+## Upper-body flinch (no knockback); `from` = world position of the attacker (optional).
+func flinch(from := Vector3.ZERO) -> void:
+	flinch_t = FLINCH_TIME
+	flinch_side = 0.0
+	if from != Vector3.ZERO:
+		var d := Vector3(from.x - global_position.x, 0.0, from.z - global_position.z).normalized()
+		flinch_side = clampf(d.dot(Vector3(cos(model_yaw), 0.0, -sin(model_yaw))), -1.0, 1.0)
+
+const FLASH_COL := {&"bubble_gun": Color(0.7, 0.95, 1.0), &"burp_gun": Color(0.9, 1.0, 0.3), &"water_gun": Color(0.4, 0.7, 1.0), &"mega_burp": Color(1.0, 0.7, 0.2), &"baseball": Color(1.0, 1.0, 1.0), &"rocket": Color(1.0, 0.5, 0.15)}
+const FLASH_SIZE := {&"bubble_gun": 0.13, &"burp_gun": 0.2, &"water_gun": 0.08, &"mega_burp": 0.28, &"baseball": 0.14, &"rocket": 0.3}
+
+## Short additive flash at the barrel tip (one pooled node, colour / size per weapon).
+func muzzle_flash(wid: StringName) -> void:
+	if flash == null:
+		flash = Node3D.new()
+		flash.top_level = true
+		flash.visible = false
+		var m := StandardMaterial3D.new()
+		m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		m.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+		m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		m.albedo_color = Color.WHITE
+		m.no_depth_test = true
+		for sc in [Vector3(1, 1, 1), Vector3(0.45, 0.45, 2.6)]:
+			var mi := MeshInstance3D.new()
+			var sm := SphereMesh.new(); sm.radius = 1.0; sm.height = 2.0; sm.radial_segments = 8; sm.rings = 4
+			mi.mesh = sm
+			mi.material_override = m
+			mi.scale = sc
+			flash.add_child(mi)
+		add_child(flash)
+	var c: Color = FLASH_COL.get(wid, Color(1, 1, 0.8))
+	((flash.get_child(0) as MeshInstance3D).material_override as StandardMaterial3D).albedo_color = Color(c.r, c.g, c.b, 0.9)
+	flash.set_meta("size", FLASH_SIZE.get(wid, 0.15))
+	flash_t = flash_peak
+
+func _update_flash(dt: float) -> void:
+	if flash == null:
+		return
+	flash_t = maxf(0.0, flash_t - dt)
+	flash.visible = flash_t > 0.0 and alive and palm != null and fx_gun != null and fx_gun.visible
+	if flash.visible:
+		var aim := fx_gun.global_transform.basis.orthonormalized()
+		var k := flash_t / flash_peak
+		var sz: float = flash.get_meta("size") * (0.6 + 0.8 * (1.0 - k) if k > 0.5 else k * 2.0 + 0.2)
+		flash.global_transform = Transform3D(aim.scaled(Vector3.ONE * sz), palm.global_position + (-aim.z) * 0.55 * cur_shrink)
 
 func _set_ghost(on: bool) -> void:
 	if model == null:
@@ -772,7 +895,18 @@ func _update_fx() -> void:
 		_ghost = ph
 		_set_ghost(ph)
 	if fx_jet:
-		fx_jet.visible = (fl & 1) != 0 and alive
+		var on := (fl & 1) != 0 and alive
+		fx_jet.visible = on
+		var dtj := get_physics_process_delta_time()
+		jet_k = move_toward(jet_k, 1.0 if on else 0.0, dtj * 7.0)   # expand on ignition, shrink on cut-off (jetpack.glb has no expand/shrink clips)
+		if on:
+			var t := Time.get_ticks_msec() / 1000.0
+			var i := 0
+			for n in fx_jet.get_children():
+				var fk := 1.0 + 0.22 * sin(t * 47.0 + i * 2.1) + 0.12 * sin(t * 83.0 + i)
+				var ov := 1.0 + 0.25 * (1.0 - jet_k)
+				(n as Node3D).scale = Vector3(fk * 0.9, fk * 0.9, fk * 1.15) * jet_k * ov
+				i += 1
 	if fx_shield:
 		fx_shield.visible = alive and (has_status("shield") or (fl & 4) != 0)
 		var m := fx_shield as MeshInstance3D
@@ -783,6 +917,11 @@ func _update_fx() -> void:
 		ba.visible = not riding
 	if fx_sprint:
 		fx_sprint.visible = alive and (fl & 16) != 0 and h_speed > 2.0 and not riding
+		if fx_sprint.visible:
+			var ts := Time.get_ticks_msec() / 1000.0
+			for j in fx_sprint.get_child_count():
+				var sn := fx_sprint.get_child(j) as Node3D
+				sn.position.z = 0.9 + fposmod(ts * 5.0 + j * 0.31, 1.2)
 	if fx_ship:
 		fx_ship.visible = alive and (ult_is(&"rocket_ship") or (ult_is(&"goddard_scooter") and ((team == Config.TEAM_JIMMY and jim_scooter == null) or (team == Config.TEAM_NEGATRON and scooter_model == null))))
 	if fx_drone:
@@ -804,6 +943,10 @@ func _update_fx() -> void:
 			fx_rope.visible = false
 
 func set_dead() -> void:
+	if alive and model != null and is_inside_tree():
+		dying = POP_TIME
+		var tc: Color = Config.TEAM_COLORS[team]
+		Fx.burst(get_parent(), global_position + Vector3(0, 0.9, 0), [tc, Color.WHITE, Color(1, 0.85, 0.2), Color(1, 0.4, 0.7)], 28, 4.5, 0.07, 0.9, 6.0)
 	alive = false
 	collision_layer = 0
 	status.clear()
@@ -813,6 +956,8 @@ func set_dead() -> void:
 
 func set_alive_at(t: Transform3D) -> void:
 	alive = true
+	dying = 0.0
+	flinch_t = 0.0
 	hp = max_hp
 	status.clear()
 	hook_t = 0.0
@@ -876,9 +1021,9 @@ func _build_gear() -> void:
 			_build_plating()
 		&"sprint":
 			fx_sprint = Node3D.new()
-			for i in 4:
-				var st := Fx.box(Vector3(0.025, 0.025, 0.9), Color(1, 1, 1, 0.5))
-				st.position = Vector3(-0.35 + 0.23 * i, 0.35 + 0.28 * (i % 3), 0.75)
+			for i in 6:
+				var st := Fx.box(Vector3(0.035, 0.035, 1.5), Color(1, 1, 1, 0.8))
+				st.position = Vector3(-0.55 + 0.22 * i, 0.3 + 0.3 * (i % 4), 0.9)
 				fx_sprint.add_child(st)
 			fx_sprint.visible = false
 			gear.add_child(fx_sprint)
@@ -1007,7 +1152,7 @@ func _build_jetpack() -> void:
 		nozzle.position = Vector3(bb.position.x, bb.position.y + bb.size.y * sy, bb.position.z + bb.size.z * 0.5)   # exhaust end = jp -x
 		var fl := Fx.model("ase/n1/fire.glb")
 		if fl:
-			Fx.fit(fl, 0.7 / maxf(base_scale, 0.0001))
+			Fx.fit(fl, 1.0 / maxf(base_scale, 0.0001))
 			fl.rotation.y = PI / 2.0   # point the flame along the pack's -x (down)
 			nozzle.add_child(fl)
 		else:
@@ -1034,6 +1179,7 @@ func _attach_palm() -> void:
 
 ## Keeps the held weapon in the palm with its barrel along the aim (body yaw, plus camera pitch for the local player).
 func _update_gun() -> void:
+	_update_flash(get_physics_process_delta_time())
 	if fx_gun == null:
 		return
 	var show := alive and model != null and model.visible and palm != null

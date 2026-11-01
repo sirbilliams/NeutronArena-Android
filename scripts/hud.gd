@@ -9,6 +9,7 @@ var banner: Label
 var cross: Label
 var kd_label: Label
 var gear_label: Label
+var feedback: Feedback
 var fuel_bar: ProgressBar
 var ult_bar: ProgressBar
 var menu: LoadoutMenu
@@ -78,6 +79,9 @@ func _ready() -> void:
 	team_menu.cancelled.connect(func(): _close_team_menu())
 	ml.add_child(team_menu)
 	world.team_refused.connect(func(msg: String): team_menu.set_info(msg))
+	feedback = Feedback.new()
+	feedback.world = world
+	add_child(feedback)
 	info_label = Label.new()
 	info_label.set_anchors_preset(Control.PRESET_TOP_LEFT)
 	info_label.position = Vector2(10, 10)

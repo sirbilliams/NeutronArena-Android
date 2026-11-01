@@ -6,6 +6,7 @@ signal player_added(id: int)
 signal player_died(id: int, killer: int)
 signal player_respawned(id: int)
 signal player_hurt(id: int, hp: int)
+signal hit_event(victim: int, shooter: int, dmg: int, pos: Vector3, killed: bool)
 signal loadout_changed(id: int)
 signal loadout_pending()
 
@@ -370,7 +371,7 @@ func _seg_seg_dist(p1: Vector3, q1: Vector3, p2: Vector3, q2: Vector3) -> Array:
 	var c2 := p2 + d2 * t
 	return [c1.distance_to(c2), s]
 
-func srv_hit(victim: int, shooter: int, dmg: int, weapon: WeaponData = null) -> void:
+func srv_hit(victim: int, shooter: int, dmg: int, weapon: WeaponData = null, bid := 0, at := Vector3.ZERO) -> void:
 	if not info.has(victim) or not info[victim].alive or match_over:
 		return
 	if srv_has(victim, "phase"):
@@ -378,6 +379,7 @@ func srv_hit(victim: int, shooter: int, dmg: int, weapon: WeaponData = null) -> 
 	var v: Dictionary = info[victim]
 	if srv_has(victim, "shrink"):
 		dmg = roundi(dmg * GadgetData.get_gadget(&"shrink_ray").f("dmg_mult", 1.0))
+	var dmg_in := dmg
 	_srv_add_charge(shooter, victim, dmg)
 	if v.shield_hp > 0 and srv_has(victim, "shield"):
 		var ab := mini(v.shield_hp, dmg)
@@ -387,8 +389,12 @@ func srv_hit(victim: int, shooter: int, dmg: int, weapon: WeaponData = null) -> 
 		if v.shield_hp <= 0:
 			v.st.erase("shield")
 			c_status.rpc(victim, "shield", 0.0, 0.0)
+	var shown_dmg := dmg_in
 	v.hp = maxi(0, v.hp - dmg)
 	c_hp.rpc(victim, v.hp)
+	var vp: Player = players.get(victim)
+	var hp_pos := at if at != Vector3.ZERO else ((vp.global_position + Vector3(0, 1.0, 0)) if vp else Vector3.ZERO)
+	c_hit.rpc(victim, shooter, shown_dmg, hp_pos, v.hp <= 0, bid)   # shooter marker / damage number / flinch / feed (server stays authoritative)
 	if v.hp > 0:
 		if weapon and weapon.slow_time > 0.0:
 			srv_set_status(victim, "slow", weapon.slow_time, weapon.slow_factor)
@@ -477,12 +483,28 @@ func c_spawn_bubble(bid: int, shooter: int, team: int, wid: StringName, origin: 
 	var p: Player = players.get(shooter)
 	if p:
 		p.shoot_pose = 0.4
+		p.muzzle_flash(wid)
 
 @rpc("authority", "call_local", "reliable")
 func c_hp(id: int, hp: int) -> void:
 	if players.has(id):
 		players[id].hp = hp
 	player_hurt.emit(id, hp)
+
+## Every peer: a hit landed (also after shield absorb). Drives the shooter's hit marker / damage numbers, the victim's flinch + direction indicator and bubble impact bursts.
+@rpc("authority", "call_local", "reliable")
+func c_hit(victim: int, shooter: int, dmg: int, pos: Vector3, killed: bool, bid := 0) -> void:
+	var vp: Player = players.get(victim)
+	var sp: Player = players.get(shooter)
+	if vp:
+		vp.flinch(sp.global_position if sp else Vector3.ZERO)
+	if bid != 0 and bubbles_root:
+		var bn := bubbles_root.get_node_or_null("b%d" % bid)
+		if bn:
+			bn.queue_free()
+	var tc: Color = Config.TEAM_COLORS[sp.team] if sp else Color.WHITE
+	Fx.burst(self, pos, [tc, Color.WHITE], 10, 3.0, 0.06, 0.45, 4.0)
+	hit_event.emit(victim, shooter, dmg, pos, killed)
 
 @rpc("authority", "call_local", "reliable")
 func c_died(id: int, killer: int) -> void:
