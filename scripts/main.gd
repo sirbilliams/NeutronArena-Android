@@ -18,6 +18,7 @@ func _ready() -> void:
 		elif a.begins_with("--port="): port = int(a.substr(7))
 		elif a.begins_with("--test="): test = a.substr(7)
 		elif a.begins_with("--shot="): shot_path = a.substr(7)
+	Config.request_android_storage()
 	if test != "":
 		Config.test_mode = true
 		var t = load("res://scripts/net_test.gd").new()
@@ -76,6 +77,13 @@ func _build_menu() -> void:
 	status = Label.new()
 	status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	box.add_child(status)
+	var retry := Button.new(); retry.text = "Check again (grant storage access first)"
+	retry.pressed.connect(func():
+		Config.request_android_storage()
+		if OS.get_name() == "Android": Config.find_android_assets()
+		ad.text = Config.asset_dir
+		_check_assets())
+	box.add_child(retry)
 	var quit := Button.new(); quit.text = "Quit"
 	quit.pressed.connect(func(): get_tree().quit())
 	box.add_child(quit)
@@ -84,7 +92,12 @@ func _build_menu() -> void:
 
 func _check_assets() -> void:
 	if status:
-		status.text = "" if Config.assets_ok() else "Assets not found in that folder (needs levels/level5c.glb, jimmy.glb, nummey*.glb)."
+		if Config.assets_ok():
+			status.text = ""
+		elif OS.get_name() == "Android":
+			status.text = "ASSETS NOT FOUND.\nCopy your exported game files (levels/level5c.glb, jimmy.glb, nummey.glb, nummey_villain.glb) to:\n%s\n(keep the 'levels' subfolder), allow 'All files access' for this app when asked, then press the button below.\nAlso searched: %s" % [Config.ANDROID_ASSET_DIRS[0], ", ".join(Config.ANDROID_ASSET_DIRS.slice(1))]
+		else:
+			status.text = "Assets not found in that folder (needs levels/level5c.glb, jimmy.glb, nummey*.glb)."
 
 func _enter_game() -> bool:
 	if not Config.assets_ok():
