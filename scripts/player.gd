@@ -47,6 +47,7 @@ var scooter_model: Node3D   # Negatron riding his own scooter (swapped in during
 var scooter_anim: AnimationPlayer
 var scooter_off := 0.0     # raw units: lifts the scooter model so its lowest point (wheels) is on the floor
 var fx_gun: Node3D
+var jim_scooter: Node3D     # Goddard's scooter (scooter.glb, same frame as Jimmy's scooter anims)
 var fx_boots: Node3D
 var fx_drone: Node3D
 var fx_mark: Label3D
@@ -139,6 +140,12 @@ func _build_model() -> void:
 			scooter_anim = scooter_model.get_node_or_null("AnimationPlayer") as AnimationPlayer
 			if scooter_anim and scooter_anim.has_animation("nummeyscooter"):
 				scooter_anim.get_animation("nummeyscooter").loop_mode = Animation.LOOP_LINEAR
+	if team == Config.TEAM_JIMMY:
+		jim_scooter = Assets.try_scene("scooter.glb") as Node3D
+		if jim_scooter:
+			jim_scooter.scale = Vector3.ONE * s
+			jim_scooter.visible = false
+			add_child(jim_scooter)
 	anim = model.get_node_or_null("AnimationPlayer") as AnimationPlayer
 	if anim == null:
 		return
@@ -438,6 +445,10 @@ func _animate() -> void:
 	if model:
 		model.rotation.y = model_yaw + MODEL_YAW
 		var neg_sc := scooter_model != null and ult_is(&"goddard_scooter")
+		if jim_scooter:
+			jim_scooter.visible = alive and ult_is(&"goddard_scooter")
+			jim_scooter.rotation.y = model_yaw + MODEL_YAW - PI / 2.0   # scooter.glb length axis is Z, jimmybase faces X natively
+			jim_scooter.scale = Vector3.ONE * base_scale * cur_shrink
 		model.visible = alive and not ult_is(&"rocket_ship") and not neg_sc
 		if scooter_model:
 			scooter_model.visible = alive and neg_sc
@@ -447,7 +458,6 @@ func _animate() -> void:
 			if neg_sc and scooter_anim and scooter_anim.current_animation != "nummeyscooter":
 				scooter_anim.play("nummeyscooter")
 		model.scale = Vector3.ONE * base_scale * cur_shrink
-		model.position.y = 25.0 * Config.WORLD_SCALE * cur_shrink if ult_is(&"goddard_scooter") and team == Config.TEAM_JIMMY else 0.0   # rider stands on the scooter deck
 	if gear:
 		gear.rotation.y = model_yaw
 		gear.scale = Vector3.ONE * cur_shrink
@@ -455,7 +465,9 @@ func _animate() -> void:
 	_update_fx()
 	if label:
 		label.visible = alive and not is_local
-	if h_speed > 0.4:
+	if team == Config.TEAM_JIMMY and jim_scooter != null and ult_is(&"goddard_scooter") and anim and anim.has_animation("jimmyscooter"):
+		_play("jimmyscooter" if h_speed > 0.4 else "jimmyscooterstop", 1.0)
+	elif h_speed > 0.4:
 		_play(anim_run, clampf(h_speed / RUN_SPEED, 0.6, 1.4))
 	else:
 		_play(anim_idle, 1.0)
@@ -486,7 +498,7 @@ func _update_fx() -> void:
 	if fx_boots:
 		fx_boots.visible = not riding
 	if fx_ship:
-		fx_ship.visible = alive and (ult_is(&"rocket_ship") or (ult_is(&"goddard_scooter") and (team == Config.TEAM_JIMMY or scooter_model == null)))
+		fx_ship.visible = alive and (ult_is(&"rocket_ship") or (ult_is(&"goddard_scooter") and ((team == Config.TEAM_JIMMY and jim_scooter == null) or (team == Config.TEAM_NEGATRON and scooter_model == null))))
 	if fx_drone:
 		fx_drone.visible = alive and has_status("drone")
 		fx_drone.position = Vector3(cos(Time.get_ticks_msec() / 400.0) * 0.8, 2.0 + sin(Time.get_ticks_msec() / 300.0) * 0.1, sin(Time.get_ticks_msec() / 400.0) * 0.8)
@@ -553,12 +565,15 @@ func _build_gear() -> void:
 	add_child(gear)
 	fx_jet = null; fx_shield = null; fx_ship = null; fx_drone = null; fx_boots = null
 	# held weapon placeholder (Neutron 2 Granny weapon models are not exported yet)
+	if fx_gun:
+		if fx_gun.get_parent() is BoneAttachment3D:
+			fx_gun.get_parent().queue_free()
+		fx_gun.queue_free()
 	var gun := Node3D.new()
 	fx_gun = gun
-	gun.position = Vector3(0.18, 0.5, -0.25)
 	match weapon.id:
 		&"burp_gun":
-			gun.add_child(Fx.box(Vector3(0.1, 0.12, 0.35), Color(1.0, 0.55, 0.1)))
+			gun.add_child(Fx.box(Vector3(0.1, 0.1, 0.16), Color(1.0, 0.55, 0.1)))
 		&"water_gun":
 			gun.add_child(Fx.box(Vector3(0.08, 0.1, 0.55), Color(0.2, 0.85, 0.35)))
 		&"mega_burp":
@@ -567,7 +582,7 @@ func _build_gear() -> void:
 			gun.add_child(Fx.box(Vector3(0.2, 0.2, 0.55), Color(0.95, 0.95, 0.95)))
 		_:
 			gun.add_child(Fx.box(Vector3(0.12, 0.14, 0.4), Color(0.3, 0.8, 1.0)))
-	gear.add_child(gun)
+	_attach_gun(gun)
 	match movement.id:
 		&"jetpack":
 			var jp := Fx.model("ase/n2/jetpack01.glb")
@@ -644,22 +659,35 @@ func _build_gear() -> void:
 			mi.rotation.x = PI / 2.0
 			fx_ship.add_child(mi)
 	else:
-		# raw model units (like the characters): ~101 tall, head/handlebars at -Z (forward), deck top ~y 25 around z +8
-		var sc := Fx.model("ase/n1/godscooter.glb") if team == Config.TEAM_JIMMY else null
-		if sc:
-			sc.scale = Vector3.ONE * Config.WORLD_SCALE
-			sc.position = Vector3(0, 0, -8.0 * Config.WORLD_SCALE)
-			# godscooter.ASE ships without UVs in every game dir (key-set-only anim file), so the texture cannot map: use the ASE material diffuse colour
-			var gm := StandardMaterial3D.new()
-			gm.albedo_color = Color(0.545, 0.192, 0.518)
-			gm.roughness = 0.6
-			for mi in sc.find_children("*", "MeshInstance3D", true, false):
-				(mi as MeshInstance3D).material_override = gm
-			fx_ship.add_child(sc)
-		else:
-			fx_ship.add_child(Fx.box(Vector3(0.4, 0.2, 1.0), Color(0.45, 0.55, 0.25)))
+		fx_ship.add_child(Fx.box(Vector3(0.4, 0.2, 1.0), Color(0.45, 0.55, 0.25)))   # fallback when scooter.glb is missing
 	fx_ship.visible = false
 	gear.add_child(fx_ship)
 	fx_drone = Fx.sphere(0.18, Color(0.9, 0.9, 0.3))
 	fx_drone.visible = false
 	gear.add_child(fx_drone)
+
+## Parent the held-weapon placeholder to the right-hand bone (falls back to a fixed spot on the gear node).
+func _attach_gun(gun: Node3D) -> void:
+	var sk: Skeleton3D = null
+	if model:
+		var l := model.find_children("*", "Skeleton3D", true, false)
+		if l.size() > 0:
+			sk = l[0] as Skeleton3D
+	var bone := ""
+	if sk:
+		for i in sk.get_bone_count():
+			var n := sk.get_bone_name(i)
+			if n.to_lower().contains("r hand") and not n.to_lower().contains("finger"):
+				bone = n
+				break
+	if sk and bone != "":
+		var ba := BoneAttachment3D.new()
+		ba.bone_name = bone
+		sk.add_child(ba)
+		gun.scale = Vector3.ONE / maxf(base_scale, 0.0001)   # bone space is in raw model units
+		gun.position = Vector3(0, 0, 0)
+		ba.add_child(gun)
+		gun.set_meta("attach", ba)
+		return
+	gun.position = Vector3(0.18, 0.5, -0.25)
+	gear.add_child(gun)

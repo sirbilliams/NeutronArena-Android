@@ -39,12 +39,13 @@ func _ready() -> void:
 	b.position = mid + Vector3(2.5, 0.1, 0); b.t_pos = b.position
 	a.model_yaw = 0.0; a.t_yaw = 0.0; b.model_yaw = 0.0; b.t_yaw = 0.0
 	a.rotation = Vector3.ZERO; b.rotation = Vector3.ZERO
+	a.t_speed = 6.0; b.t_speed = 6.0
 	a.set_status("ult", 99.0)
 	b.set_status("ult", 99.0)
 	plan = [
-		[20, func(): _cam(mid + Vector3(1.4, 0.7, 0.0), mid + Vector3(-2.5, 0.4, 0), 55)],
+		[20, func(): _cam(mid + Vector3(0.6, 0.8, 0.0), mid + Vector3(-2.5, 0.5, 0), 55)],
 		[40, func(): _snap("scooter_ultimate_jimmy")],
-		[41, func(): _cam(mid + Vector3(6.4, 0.7, 0.0), mid + Vector3(2.5, 0.4, 0), 55)],
+		[41, func(): _cam(mid + Vector3(4.8, 0.6, 0.0), mid + Vector3(2.5, 0.4, 0), 55)],
 		[60, func(): _snap("scooter_ultimate_negatron")],
 		[61, func(): a.status.clear(); b.status.clear(); _cam(mid + Vector3(1.4, 0.7, 0.0), mid + Vector3(-2.5, 0.5, 0), 55)],
 		[80, func(): _snap("gear_check"); get_tree().quit()],
