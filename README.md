@@ -15,10 +15,12 @@ Screenshots: `tools/vrun.sh res://tools/shots.tscn` (nested virtual KWin, needs 
 Loadout test: `tests/run_loadout_test.sh` (host + client + observer over localhost). Loadout shots: `tools/vrun.sh res://tools/shots_loadout.tscn`.
 
 ## Map (5v5)
-Playable area = the street block at the Candy Bar end of the city (`PLAY_RECTS` in `scripts/arena_level.gd`): Jimmy at the
-Candy Bar, Negatron at the SW corner of the block (124 m straight, ~176 m along the streets). Fence is generated around
-the outline of the rectangles. Level load splits the single Level mesh into a core batch plus far chunks with a visibility range.
-Perf: `tools/vrun.sh res://tools/perf.tscn` (fixed cameras, draw calls / primitives / frame time); probe ground: `res://tools/probe.tscn`.
+`LAYOUT` in `scripts/arena_level.gd`: "museum" (default) = Candy Bar (Jimmy) to museum plaza (Negatron), ~392 m apart, one fenced
+rectangle over the serpentine street route (blocks between legs are open = flanks); "compact" = the 124 m street block at the Candy Bar end.
+Forward spawn zones (2 per team, data in `LAYOUTS[..].fwd`): a dead player respawns at the most forward team zone with no living
+enemy within 25 m, else the next one back, finally the base (server decides, `World._respawn_spawn`). Cover along the route is generated (one MultiMesh).
+Level load: play area stays one batch (fewest draw calls), far backdrop is chunked + range-limited.
+Tests: `tests/run_net_test.sh`, `tests/run_zone_test.sh` (forward-spawn rule). Perf: `tools/vrun.sh res://tools/perf.tscn [-- --core=12000]`.
 
 ## Android (AYN Thor, arm64, Compatibility/GLES3 renderer)
 One-time setup (everything under `~`, no sudo; the flatpak sees the whole host):

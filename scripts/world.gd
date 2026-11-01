@@ -89,6 +89,18 @@ func _next_spawn(team: int) -> Transform3D:
 	spawn_counter[team] += 1
 	return level.spawn_point(team, idx)
 
+## Server: respawn transform = most forward team zone with no living enemy within ArenaLevel.ZONE_CLEAR metres.
+func _respawn_spawn(id: int) -> Transform3D:
+	var team: int = info[id].team
+	var enemies := []
+	for i in info:
+		if info[i].team != team and info[i].alive and players.has(i):
+			enemies.append((players[i] as Player).global_position)
+	var zone := level.choose_zone(team, enemies)
+	var idx: int = spawn_counter[team]
+	spawn_counter[team] += 1
+	return level.spawn_point(team, idx, zone)
+
 ## Called on the owner: ask the server to shoot.
 func request_fire_local(origin: Vector3, dir: Vector3, chg := 0.0) -> void:
 	if multiplayer.is_server():
@@ -266,7 +278,7 @@ func _srv_respawn(id: int) -> void:
 	_srv_apply_loadout(id, false)
 	info[id].hp = info[id].max_hp
 	info[id].alive = true
-	c_respawn.rpc(id, _next_spawn(info[id].team))
+	c_respawn.rpc(id, _respawn_spawn(id))
 
 func _srv_reset_match() -> void:
 	team_score = [0, 0]

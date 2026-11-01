@@ -15,7 +15,7 @@ func _ready() -> void:
 			var r := sp.intersect_ray(q)
 			var y: float = r.position.y if r else -99.0
 			row += "#" if y > 1.0 else ("." if y > -0.5 else ("o" if y > -9 else "?"))
-			x += 600
+			x += 1200
 		print("Z%6d %s" % [z, row])
-		z += 900
+		z += 1500
 	get_tree().quit()

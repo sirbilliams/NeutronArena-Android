@@ -2,17 +2,45 @@ class_name ArenaLevel
 extends Node3D
 ## Loads the Carl city level (level5c.glb) at runtime, builds collision, fences the play area.
 
-# Raw game units (glb space, Y up). The 5v5 map is the street block at the Candy Bar end of the city:
-# Jimmy base = Candy Bar front (top street, east end), Negatron base = SW corner of the block (~124 m straight line,
-# ~176 m along the streets). The museum end is ~400 m away, too far for a handheld-sized match.
+# Raw game units (glb space, Y up). Two selectable layouts (const LAYOUT, or set `layout_name` before load_level()):
+#  "museum" (default): Jimmy = Candy Bar front, Negatron = museum plaza, ~392 m apart, fenced rectangle over the
+#                      serpentine street route (blocks between the street legs are open ground = natural flanks).
+#  "compact": the street block at the Candy Bar end only (Negatron at its SW corner, ~124 m apart).
+const LAYOUT := "museum"
 const CANDY_CENTER := Vector3(14865, 0, -44900)
-const NEGATRON_CENTER := Vector3(1800, 0, -30500)
-const MUSEUM_CENTER := NEGATRON_CENTER   # legacy name used by tests/net_test.gd
-## Play area = union of these raw-unit rectangles (x, z, width, depth). The fence is generated around their outline.
-const PLAY_RECTS := [
-	Rect2(300, -46200, 18600, 17400),   # the street ring + courtyard block (top, left, bottom streets)
-	Rect2(8000, -52500, 12500, 6400),   # Candy Bar plaza north of the top street
-]
+const MUSEUM_CENTER := Vector3(2400, 0, 15200)
+const NEGATRON_COMPACT := Vector3(1800, 0, -30500)
+const NEGATRON_CENTER := MUSEUM_CENTER   # legacy alias (tests/net_test.gd)
+## Per layout: play area = union of raw rectangles (x, z, w, d); fence is generated around their outline.
+## route = street centre line Candy -> museum (raw x,z); fwd = forward-zone positions as fractions of the route
+## length from Jimmy's base, listed most-forward first per team (Jimmy: larger = more forward; Negatron: smaller).
+const LAYOUTS := {
+	"museum": {
+		"rects": [
+			Rect2(300, -46200, 18200, 41200),     # top street .. down the street legs and the blocks between
+			Rect2(-1100, -5200, 19600, 19300),    # crossing + z=1200 street + west avenue
+			Rect2(-1100, 13000, 13000, 5200),     # museum plaza
+			Rect2(8000, -52500, 12500, 6400),     # Candy Bar plaza
+		],
+		"bases": [Vector3(14865, 0, -44900), Vector3(2400, 0, 15200)],
+		"route": [Vector2(14865, -44900), Vector2(1800, -44700), Vector2(1800, -30500), Vector2(16600, -30500),
+			Vector2(16600, -19500), Vector2(2400, -19500), Vector2(2400, -9200), Vector2(13400, -9200),
+			Vector2(13400, 1200), Vector2(1500, 1200), Vector2(1500, 13000), Vector2(2400, 15200)],
+		"fwd": [[0.43, 0.28], [0.57, 0.72]],
+		"cover_step": 6000.0,
+	},
+	"compact": {
+		"rects": [
+			Rect2(300, -46200, 18600, 17400),   # the street ring + courtyard block (top, left, bottom streets)
+			Rect2(8000, -52500, 12500, 6400),   # Candy Bar plaza north of the top street
+		],
+		"bases": [Vector3(14865, 0, -44900), Vector3(1800, 0, -30500)],
+		"route": [Vector2(14865, -44900), Vector2(1800, -44700), Vector2(1800, -30500)],
+		"fwd": [[], []],
+		"cover_step": 0.0,
+	},
+}
+const ZONE_CLEAR := 25.0   # metres: a forward zone is usable if no living enemy is this close to it
 const FENCE_CELL := 250.0   # raw units, outline resolution
 const FENCE_HEIGHT := 60.0  # metres
 var chunk_raw := 12000.0  # far-field chunk edge (raw units); the play area itself stays one batch (fewest draw calls)
@@ -27,14 +55,66 @@ const SPAWN_ROWS := 2
 var root: Node3D
 var body: StaticBody3D
 var stats := {"chunks": 0, "dropped": 0}
+var layout_name := LAYOUT
+var core_chunk := 0.0       # >0: chunk the play area too (raw units) instead of one batch (tested in tools/perf.gd)
+var zones := [[], []]       # per team: [{raw: Vector3, dir: Vector2}] most forward first, base zone last
+
+func _layout() -> Dictionary:
+	return LAYOUTS[layout_name]
+
+func _build_zones() -> void:
+	var L := _layout()
+	var route: Array = L.route
+	var total := 0.0
+	for i in route.size() - 1:
+		total += route[i].distance_to(route[i + 1])
+	zones = [[], []]
+	for team in 2:
+		for fr in L.fwd[team]:
+			var q := _route_at(route, fr * total)
+			# face the enemy: Jimmy walks along the route, Negatron against it
+			var d: Vector2 = q[1] if team == Config.TEAM_JIMMY else -q[1]
+			zones[team].append({"raw": Vector3(q[0].x, 0, q[0].y), "dir": d})
+		var base: Vector3 = L.bases[team]
+		var other: Vector3 = L.bases[1 - team]
+		zones[team].append({"raw": base, "dir": Vector2(other.x - base.x, other.z - base.z).normalized()})
+
+## [point, unit tangent] at arclength `s` along a raw polyline
+func _route_at(route: Array, s: float) -> Array:
+	for i in route.size() - 1:
+		var l: float = route[i].distance_to(route[i + 1])
+		if s <= l or i == route.size() - 2:
+			var t: Vector2 = (route[i + 1] - route[i]).normalized()
+			return [route[i] + t * minf(s, l), t]
+		s -= l
+	return [route[0], Vector2.RIGHT]
+
+## Index of the zone (in zones[team]) a dead player of `team` respawns at: the most forward zone with no
+## enemy (world-space positions) within ZONE_CLEAR metres, else the next one back, finally the base.
+func choose_zone(team: int, enemy_positions: Array) -> int:
+	var zs: Array = zones[team]
+	for i in zs.size() - 1:
+		var c := raw_to_world(zs[i].raw)
+		var clear := true
+		for e in enemy_positions:
+			if Vector2(e.x - c.x, e.z - c.z).length() < ZONE_CLEAR:
+				clear = false
+				break
+		if clear:
+			return i
+	return zs.size() - 1
+
+func _rects() -> Array:
+	return _layout().rects
 
 func _play_bounds() -> Rect2:
-	var r: Rect2 = PLAY_RECTS[0]
-	for q in PLAY_RECTS:
+	var r: Rect2 = _rects()[0]
+	for q in _rects():
 		r = r.merge(q)
 	return r
 
 func load_level() -> bool:
+	_build_zones()
 	var t0 := Time.get_ticks_msec()
 	var scn := Assets.load_scene("levels/level5c.glb")
 	if scn == null:
@@ -123,7 +203,9 @@ func _chunk_level(mi: MeshInstance3D) -> void:
 				p0.y = SEAT_Y; p1.y = SEAT_Y; p2.y = SEAT_Y
 			var cx := (p0.x + p1.x + p2.x) / 3.0
 			var cz := (p0.z + p1.z + p2.z) / 3.0
-			var key := Vector2i(-999, -999) if core.has_point(Vector2(cx, cz)) else Vector2i(floori(cx / chunk_raw), floori(cz / chunk_raw))
+			var key := Vector2i(floori(cx / chunk_raw), floori(cz / chunk_raw))
+			if core.has_point(Vector2(cx, cz)):
+				key = Vector2i(-999, -999) if core_chunk <= 0.0 else Vector2i(floori(cx / core_chunk), floori(cz / core_chunk) + 100000)
 			var ch: Dictionary = chunks.get_or_add(key, {})
 			var d: Dictionary = ch.get_or_add(s, {"v": PackedVector3Array(), "n": PackedVector3Array(), "u": PackedVector2Array()})
 			d.v.append(p0); d.v.append(p1); d.v.append(p2)
@@ -172,7 +254,7 @@ func raw_to_world(p: Vector3) -> Vector3:
 	return p * Config.WORLD_SCALE
 
 func _inside(cx: float, cz: float) -> bool:
-	for r in PLAY_RECTS:
+	for r in _rects():
 		if r.has_point(Vector2(cx, cz)):
 			return true
 	return false
@@ -234,32 +316,71 @@ const COVER := [
 	[11200, -30500, Vector3(5.0, 1.3, 0.7), 0.0], [12600, -30900, Vector3(1.6, 1.6, 1.6), -20.0], [9900, -30000, Vector3(1.6, 1.0, 1.6), 5.0],
 ]
 
+func _cover_items() -> Array:
+	var step: float = _layout().cover_step
+	if step <= 0.0:
+		return COVER
+	var items := []
+	var route: Array = _layout().route
+	var total := 0.0
+	for i in route.size() - 1:
+		total += route[i].distance_to(route[i + 1])
+	var s := step * 0.6
+	var k := 0
+	while s < total - step * 0.5:
+		var q := _route_at(route, s)
+		var pt: Vector2 = q[0]
+		var t: Vector2 = q[1]
+		var n := Vector2(-t.y, t.x)
+		var near_zone := false
+		for team in 2:
+			for z in zones[team]:
+				if Vector2(z.raw.x, z.raw.z).distance_to(pt) * Config.WORLD_SCALE < 14.0:
+					near_zone = true
+		if not near_zone:
+			var side := 1.0 if k % 2 == 0 else -1.0
+			var yaw := rad_to_deg(atan2(-t.y, t.x))
+			var m := 1.0 / Config.WORLD_SCALE   # 1 metre in raw units
+			var w: Vector2 = pt + n * side * 3.5 * m
+			items.append([w.x, w.y, Vector3(5.0, 1.3, 0.7), yaw])
+			var c1: Vector2 = pt - n * side * 3.0 * m + t * 3.0 * m
+			items.append([c1.x, c1.y, Vector3(1.6, 1.6, 1.6), yaw + 20.0])
+			var c2: Vector2 = pt - n * side * 4.5 * m - t * 2.0 * m
+			items.append([c2.x, c2.y, Vector3(1.6, 1.0, 1.6), yaw - 15.0])
+		s += step
+		k += 1
+	return items
+
 func _add_cover() -> void:
 	var mat := StandardMaterial3D.new()
 	mat.albedo_color = Color(0.62, 0.55, 0.45)
 	mat.roughness = 0.9
-	var cov := Node3D.new()
+	var items := _cover_items()
+	var mm := MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_3D
+	var bm := BoxMesh.new()
+	bm.size = Vector3.ONE
+	bm.material = mat
+	mm.mesh = bm
+	mm.instance_count = items.size()
+	var cov := MultiMeshInstance3D.new()   # one draw call for all cover
 	cov.name = "Cover"
+	cov.multimesh = mm
 	add_child(cov)
-	for c in COVER:
+	for i in items.size():
+		var c: Array = items[i]
 		var sz: Vector3 = c[2]
 		var p := Vector3(c[0], 0, c[1]) * Config.WORLD_SCALE
 		p.y = sz.y * 0.5 - 0.02   # street level is y=0
-		var mi := MeshInstance3D.new()
-		var bm := BoxMesh.new()
-		bm.size = sz
-		mi.mesh = bm
-		mi.material_override = mat
-		mi.position = p
-		mi.rotation_degrees.y = c[3]
-		cov.add_child(mi)
+		var bas := Basis(Vector3.UP, deg_to_rad(c[3]))
+		mm.set_instance_transform(i, Transform3D(bas * Basis.from_scale(sz), p))
 		var cs := CollisionShape3D.new()
 		var bx := BoxShape3D.new()
 		bx.size = sz
 		cs.shape = bx
-		cs.position = p
-		cs.rotation_degrees.y = c[3]
+		cs.transform = Transform3D(bas, p)
 		body.add_child(cs)
+	stats["cover"] = items.size() / 3
 
 func ground_y(world_xz: Vector3) -> float:
 	var space := get_world_3d().direct_space_state
@@ -267,17 +388,20 @@ func ground_y(world_xz: Vector3) -> float:
 	var r := space.intersect_ray(q)
 	return r.position.y if r else 0.0
 
-## Spawn points: SPAWN_COLS x SPAWN_ROWS grid in front of the base, facing the other base.
-func spawn_point(team: int, idx: int) -> Transform3D:
-	var c := CANDY_CENTER if team == Config.TEAM_JIMMY else NEGATRON_CENTER
-	var cw := raw_to_world(c)
+## Spawn grid (SPAWN_COLS x SPAWN_ROWS) of a team zone, facing the enemy. zone < 0 = the team's base zone.
+func spawn_point(team: int, idx: int, zone := -1) -> Transform3D:
+	var zs: Array = zones[team]
+	var z: Dictionary = zs[zs.size() - 1 if zone < 0 else zone]
+	var cw := raw_to_world(z.raw)
+	var dir: Vector2 = z.dir
+	var perp := Vector2(-dir.y, dir.x)
 	var n := idx % (SPAWN_COLS * SPAWN_ROWS)
 	var col := n % SPAWN_COLS
 	var row := n / SPAWN_COLS
-	var p := cw + Vector3((col - (SPAWN_COLS - 1) * 0.5) * 2.0, 0, (row - 0.5) * 2.0)
+	var off := perp * (col - (SPAWN_COLS - 1) * 0.5) * 2.0 - dir * (row * 2.0)
+	var p := cw + Vector3(off.x, 0, off.y)
 	p.y = ground_y(p) + 0.1
-	var other := raw_to_world(NEGATRON_CENTER if team == Config.TEAM_JIMMY else CANDY_CENTER)
-	var yaw := atan2(-(other.x - p.x), -(other.z - p.z))
+	var yaw := atan2(-dir.x, -dir.y)
 	return Transform3D(Basis(Vector3.UP, yaw), p)
 
 func add_environment() -> void:

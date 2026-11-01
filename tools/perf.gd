@@ -5,9 +5,10 @@ var world: World
 var cam: Camera3D
 var f := 0
 var views := [
-	["street_candy", Vector3(98.1, 2.5, -290.0), Vector3(40.0, 2.0, -290.0)],   # Jimmy side, along the top street
-	["overview", Vector3(65.0, 120.0, -250.0), Vector3(65.0, 0.0, -230.0)],
-	["wide_low", Vector3(30.0, 1.7, -200.0), Vector3(120.0, 4.0, -260.0)],
+	["street_candy", Vector3(98.1, 2.5, -290.0), Vector3(40.0, 2.0, -290.0)],   # Jimmy base, along the top street
+	["mid_street", Vector3(60.0, 2.0, -201.0), Vector3(110.0, 3.0, -201.0)],    # bottom street of the first ring
+	["museum_ave", Vector3(15.8, 2.0, 84.0), Vector3(15.8, 3.0, 30.0)],         # Negatron base, north along the avenue
+	["overview", Vector3(65.0, 250.0, -100.0), Vector3(65.0, 0.0, -90.0)],      # whole route from above
 ]
 var vi := 0
 var samples := []
@@ -18,6 +19,7 @@ func _ready() -> void:
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("--drop="): world.level.drop_dist = float(a.substr(7))
 		if a.begins_with("--vis="): world.level.vis_range = float(a.substr(6))
+		if a.begins_with("--core="): world.level.core_chunk = float(a.substr(7))
 		if a.begins_with("--chunk="): world.level.chunk_raw = float(a.substr(8))
 	print("build ", world.build())
 	cam = Camera3D.new(); cam.far = 2000; add_child(cam); cam.current = true
