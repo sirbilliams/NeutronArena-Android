@@ -213,6 +213,7 @@ func _build_model() -> void:
 					lib.add_animation(n, oap.get_animation(n).duplicate())
 		other.free()
 		anim_idle = "nummeystop"; anim_run = "nummeyrun"; anim_walk = "nummeywalk"; anim_fall = ""; anim_jump = ""; anim_fly = "nummeyfly"   # numflyair is a tumble loop: not used; Negatron holds a run frame in the air
+	AnimFix.fix_player(anim)
 	anim.deterministic = true   # tracks a clip does not key blend back to the rest pose (jump/fly clips key extra bones)
 	for n in anim.get_animation_list():
 		anim.get_animation(n).loop_mode = Animation.LOOP_LINEAR
