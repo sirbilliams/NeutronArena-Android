@@ -100,6 +100,10 @@ const GrnJob GRN_JOBS[] = {
 															  "jimmyjump.grn", "jimmyfall.grn", "jimmyfly.grn", "jimmyjumpgun.grn" } },
 	{ "nummey.glb", "nummeybase.grn", { "nummeywalk.grn", "nummeyrun.grn", "nummeystop.grn", "nummeytalk.grn" } },
 	{ "nummey_villain.glb", "nummeybase.grn", { "nummeylaugh.grn", "nummeydoom.grn", "nummeypushbuttons.grn", "nummeyflipsinair.grn", "nummeyfly.grn", "numflyair.grn" } },
+	// Roster characters (character select). Skinned on the same Biped rig as Jimmy; the game reuses Jimmy's locomotion clips on them (runtime retarget, scripts/char_model.gd).
+	{ "carl.glb", "carlbase.grn", { "carlrun.grn", "carlwalk.grn", "carlstop.grn" } },
+	{ "cindy.glb", "cindybase.grn", { "cindywalk.grn", "cindyidle.grn", "cindystop.grn" } },
+	{ "sheen.glb", "sheenbase.grn", { "sheenidle.grn" } },
 	{ "jetpack.glb", "jetpack.grn", {} },   // backpack model (Granny); attached to the spine while the jetpack is equipped
 	{ "nummey_scooter.glb", "nummeyscooterbase.grn", { "nummeyscooter.grn", "nummeyscootertalk.grn" } },
 };
@@ -109,6 +113,11 @@ const AseJob ASE_JOBS[] = {
 	{ 1, "hook", "", "", false, false, false },
 	{ 1, "rocket", "", "", false, false, false },
 	{ 1, "strato", "strato.png", "", false, false, false },
+	// Libby (Boy Genius, vertex animated, no skeleton); run / wave share the stop pose's UVs + texture
+	{ 1, "libystop", "libby.png", "", true, false, false },
+	{ 1, "libywalk", "libby.png", "libystop", true, false, false },
+	{ 1, "libyrun", "libby.png", "libystop", true, false, false },
+	{ 1, "libywave", "libby.png", "libystop", true, false, false },
 	{ 2, "jetpack01", "", "", true, false, false },
 	{ 2, "goofbootfly", "goofbot.png", "goofbotstop", true, false, false },
 	{ 2, "energybubble", "bubble.png", "", true, true, false },
@@ -124,7 +133,7 @@ std::set<std::string> want_n2()
 }
 std::set<std::string> want_n1()
 {
-	std::set<std::string> s{ "png/fire.png", "png/hook.png", "png/rocket.png", "png/strato.png" };
+	std::set<std::string> s{ "png/fire.png", "png/hook.png", "png/rocket.png", "png/strato.png", "png/libby.png" };
 	for (auto &a : ASE_JOBS) if (a.game == 1) s.insert(std::string("ase/") + a.stem + ".ase");
 	return s;
 }
@@ -215,7 +224,7 @@ Dictionary NaImporter::convert_all(const std::string &g2, const std::string &g1,
 	auto fail = [&](const std::string &m) { res["error"] = String(m.c_str()); return res; };
 	auto cleanup = [&]() { if (own) { rmtree(g2); rmtree(g1); rmtree(cache + "/cab"); } };
 	std::vector<std::string> made;
-	size_t total = 5 + 3 + 1 + (have_n1 ? 4 : 0) + 3, done = 0;
+	size_t total = sizeof(GRN_JOBS) / sizeof(GRN_JOBS[0]) + 3 + (have_n1 ? 4 + 4 : 0) + 3, done = 0;
 	double cspan = 1.0 - cbase;
 	auto step = [&](const std::string &what) { set_progress(String("Converting ") + String(what.c_str()), 0, cbase + cspan * (double)done / (double)total, 0); };
 	std::string dll = find_ci(g2, "granny.dll");

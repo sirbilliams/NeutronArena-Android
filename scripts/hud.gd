@@ -20,6 +20,9 @@ var ever_joined := false
 var first_done := false
 var queued_msg := ""
 var first_pending := true
+var char_select: CharacterSelect
+var char_open := false
+var _last_team := -1
 
 func _ready() -> void:
 	score_label = Label.new()
@@ -76,6 +79,12 @@ func _ready() -> void:
 	add_child(ml)
 	ml.add_child(menu)
 	menu.team_switch_requested.connect(_open_team_menu.bind(true))
+	char_select = CharacterSelect.new()
+	char_select.set_anchors_preset(Control.PRESET_FULL_RECT)
+	char_select.visible = false
+	char_select.chosen.connect(_on_char_chosen)
+	char_select.cancelled.connect(_close_char_select)
+	menu.character_requested.connect(_open_char_select)
 	team_menu = TeamMenu.new()
 	team_menu.set_anchors_preset(Control.PRESET_FULL_RECT)
 	team_menu.visible = false
@@ -110,6 +119,11 @@ func _process(_d: float) -> void:
 		if not first_done and not Config.test_mode:
 			first_done = true
 			_set_menu(true)
+			_open_char_select()   # character select right after the team choice, then the loadout menu
+		elif _last_team != -1 and me.team != _last_team and not Config.test_mode:
+			_set_menu(true)
+			_open_char_select()   # switched teams: pick a character of the new side
+		_last_team = me.team
 		if not me.alive and not menu_open and queued_msg == "" and not world.match_over:
 			_set_menu(true)
 		if me.alive and queued_msg != "" and not menu_open:
@@ -163,6 +177,25 @@ func _close_team_menu() -> void:
 	elif DisplayServer.get_name() != "headless":
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
+func _open_char_select() -> void:
+	var me: Player = world.players.get(multiplayer.get_unique_id())
+	if me == null or Config.test_mode:
+		return
+	char_open = true
+	menu.visible = false
+	char_select.open(me.team, menu.loadout.get("char", &""))
+
+func _close_char_select() -> void:
+	char_open = false
+	char_select.visible = false
+	if menu_open:
+		menu.visible = true
+		menu.focus_first()
+
+func _on_char_chosen(id: StringName) -> void:
+	menu.set_character(id)
+	_close_char_select()
+
 func _on_team_chosen(t: int) -> void:
 	world.request_team(t)
 	if team_menu.can_cancel:
@@ -182,6 +215,9 @@ func _set_menu(open: bool) -> void:
 		return
 	menu_open = open
 	menu.visible = open
+	if not open:
+		char_open = false
+		char_select.visible = false
 	var me: Player = world.players.get(multiplayer.get_unique_id())
 	if me:
 		me.input_blocked = open
