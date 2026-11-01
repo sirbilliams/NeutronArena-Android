@@ -54,6 +54,7 @@ func start_server() -> void:
 		_srv_peer_connected(id)
 
 const TEAM_AUTO := -1
+const SWITCH_COOLDOWN := 10.0   # stops team-switching as a free heal/respawn
 const TEAM_CAP := 5
 signal team_refused(msg: String)
 
@@ -104,6 +105,8 @@ func srv_team(choice: int) -> void:
 func _srv_team_request(id: int, choice: int) -> void:
 	while not ready_for_peers:
 		await get_tree().physics_frame
+	if id != 1 and not multiplayer.get_peers().has(id):
+		return   # left while we waited: don't spawn a ghost
 	var r := resolve_team(choice, _team_counts(id))
 	if r.team < 0:
 		_team_msg(id, r.msg)
@@ -112,7 +115,14 @@ func _srv_team_request(id: int, choice: int) -> void:
 		_team_msg(id, r.msg)
 	if info.has(id):
 		if info[id].team != r.team:
-			_srv_switch_team(id, r.team)
+			var now := Time.get_ticks_msec() / 1000.0
+			if not info[id].alive:
+				_team_msg(id, "You can switch teams after you respawn.")
+			elif now - info[id].get("last_switch", -100.0) < SWITCH_COOLDOWN:
+				_team_msg(id, "Wait a few seconds before switching again.")
+			else:
+				info[id].last_switch = now
+				_srv_switch_team(id, r.team)
 	else:
 		_srv_join(id, r.team)
 
