@@ -1,5 +1,5 @@
 /* NaImporter: ISO 9660 -> InstallShield cabinet (unshield) -> only the files the converters need -> Granny / OMT / ASE
-   converters -> the glb files Negatron Arena loads.  Everything runs on the device; nothing is written next to the ISO. */
+   converters -> the glb files Neutron Arena loads.  Everything runs on the device; nothing is written next to the ISO. */
 #include "importer.h"
 #include "converters.h"
 #include "../iso/NegImport.h"

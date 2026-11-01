@@ -65,7 +65,7 @@ func _build_menu() -> void:
 	box.add_theme_constant_override("separation", 12)
 	menu.add_child(box)
 	var title := Label.new()
-	title.text = "NEGATRON ARENA"
+	title.text = "NEUTRON ARENA"
 	title.add_theme_font_size_override("font_size", 40)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(title)

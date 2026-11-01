@@ -1,4 +1,4 @@
-package com.negatronarena.sharedimport;
+package com.neutronarena.sharedimport;
 
 import android.content.ContentResolver;
 import android.content.pm.PackageManager;

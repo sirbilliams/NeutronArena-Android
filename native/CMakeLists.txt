@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 project(naimport C CXX)
 
-# libnaimport: GDExtension for Negatron Arena that imports the player's own game CDs on the device.
+# libnaimport: GDExtension for Neutron Arena that imports the player's own game CDs on the device.
 #   cmake -S native -B native/build-linux -DCMAKE_BUILD_TYPE=Release && cmake --build native/build-linux -j8
 #   Android: see native/build.sh (NDK toolchain).
 # godot-cpp is fetched by native/fetch-deps.sh (not committed).

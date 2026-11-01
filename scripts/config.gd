@@ -20,9 +20,9 @@ var test_mode := false   # headless tests: no local input
 ## Android: folders searched for the game export (first one that has the files wins). Needs "All files access"
 ## (or adb push into the app folder below, which needs no permission).
 const ANDROID_ASSET_DIRS := [
-	"/sdcard/NegatronArena",
-	"/storage/emulated/0/NegatronArena",
-	"/sdcard/Android/data/com.negatronarena.game/files/NegatronArena",
+	"/sdcard/NeutronArena",
+	"/storage/emulated/0/NeutronArena",
+	"/sdcard/Android/data/com.neutronarena.game/files/NeutronArena",
 ]
 
 ## Art imported on the device from the player's own game CDs (scripts/setup_screen.gd -> NaImporter). Never committed.
@@ -53,7 +53,7 @@ func _ready() -> void:
 	asset_dir = dev_asset_dir
 	if imported_ok():
 		asset_dir = import_dir()
-	var env := OS.get_environment("NEGATRON_ASSETS")
+	var env := OS.get_environment("NEUTRON_ASSETS")
 	if env != "":
 		asset_dir = env
 	elif OS.get_name() == "Android" and not assets_ok():

@@ -5,7 +5,7 @@ plugins {
 }
 
 android {
-    namespace 'com.negatronarena.sharedimport'
+    namespace 'com.neutronarena.sharedimport'
     compileSdk 36
     defaultConfig { minSdk 24 }
     compileOptions {

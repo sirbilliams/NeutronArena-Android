@@ -2,7 +2,7 @@
     the disc (data1.hdr / data1.cab), copies it out, and extracts the "Program Executable Files"
     group (omt/, gam/, grn/ ... and Neutron2.exe) into a folder - what the CD's setup.exe does.
 
-    Reworked for Negatron Arena: reads the image through a callback, extracts only the files the converters need. */
+    Reworked for Neutron Arena: reads the image through a callback, extracts only the files the converters need. */
 #pragma once
 #include <stddef.h>
 #ifdef __cplusplus

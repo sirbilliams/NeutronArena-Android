@@ -13,6 +13,6 @@
 
     <application>
         <meta-data android:name="org.godotengine.plugin.v2.SharedImport"
-            android:value="com.negatronarena.sharedimport.SharedImportPlugin" />
+            android:value="com.neutronarena.sharedimport.SharedImportPlugin" />
     </application>
 </manifest>

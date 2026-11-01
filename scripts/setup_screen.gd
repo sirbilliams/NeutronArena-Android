@@ -38,7 +38,7 @@ func _ready() -> void:
 	var bg := ColorRect.new(); bg.color = Color(0.1, 0.12, 0.2); bg.set_anchors_preset(Control.PRESET_FULL_RECT); add_child(bg)
 	var center := CenterContainer.new(); center.set_anchors_preset(Control.PRESET_FULL_RECT); add_child(center)
 	var box := VBoxContainer.new(); box.custom_minimum_size = Vector2(760, 0); box.add_theme_constant_override("separation", 14); center.add_child(box)
-	var title := Label.new(); title.text = "SET UP NEGATRON ARENA"; title.add_theme_font_size_override("font_size", 38)
+	var title := Label.new(); title.text = "SET UP NEUTRON ARENA"; title.add_theme_font_size_override("font_size", 38)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER; box.add_child(title)
 	_info = Label.new(); _info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_info.text = "The game uses the art of your own copies of the PC games. Use the installed port apps if you have them, or choose the CD images (.iso); everything is converted on this device and stays here."

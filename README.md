@@ -1,4 +1,34 @@
-# Negatron Arena (Phase 1 prototype)
+# Neutron Arena
+
+Original 5v5 team deathmatch: Jimmy Neutron vs Jimmy Negatron, bubble guns and gadgets, on Android handhelds and Linux.
+
+
+## Status
+Updated 2026-10-31: Playable prototype, Android (AYN Thor tested) + Linux desktop.
+
+## Features
+* 5v5 team deathmatch, first to 25.
+* Carl city level (Retroville) with Candy Bar (Jimmy base), museum (Negatron base), and forward spawn zones.
+* Team select (Jimmy/Negatron/Auto, max 5 per team, 10 s cooldown to switch).
+* 5 classes with loadouts: primary (e.g., bubble gun, burp gun, water gun, mega burp gun, baseball launcher), gadget (laser trap, drone, shield, shrink ray, phase), movement (jetpack, goof boots, grapple, sprint, bubble float), and ultimate (e.g., rocket ship).
+* Team scooters.
+* LAN/online host-join over ENet, server-authoritative.
+
+## Getting the art (legal)
+Art is imported on the device from the player's own *Jimmy Neutron vs Jimmy Negatron* CD image (required) and optionally *Jimmy Neutron: Boy Genius* CD image, or pulled from the installed *Neutron 1* / *Neutron 2* Android ports (sirbilliams/neutron1-Android, sirbilliams/neutron2-Android, latest builds). Nothing from the games is in this repo or the APK.
+
+## Known gaps
+* No strafe animations.
+* Remote players' gun pitch not synced.
+* Jetpack flames small.
+* APK 73 MB (engine library not stripped).
+* No bots yet.
+* No Thor bottom-screen scoreboard yet.
+
+## License
+MIT for own code; third-party in native/THIRD_PARTY.md.
+
+## Technical details
 
 Original 5v5 bubble-gun team deathmatch (Jimmy vs Negatron). The art comes from the player's own copies of the PC games and is
 imported **inside the app** (nothing is bundled or committed): first launch shows a Setup screen, the player picks their Jimmy Neutron vs.
@@ -11,7 +41,7 @@ level/prop reader, the ASE parser and the three glTF writers (ports of the offli
 `scripts/setup_screen.gd` is the UI (touch + gamepad, per-stage progress, errors for wrong disc / not an ISO / no space).
 Build the library (not committed): `native/build.sh linux` and `native/build.sh android` (inside the `omtbuild` distrobox; Android needs the
 NDK `ndk;27.2.12479018`); then `godot --headless --path . --import`. Details + licences: `native/THIRD_PARTY.md`.
-Dev fallback (the old way): an asset folder with the glbs (`NEGATRON_ASSETS=...` or the menu field) is used when nothing is imported.
+Dev fallback (the old way): an asset folder with the glbs (`NEUTRON_ASSETS=...` or the menu field) is used when nothing is imported.
 Tests: `tests/run_setup_test.sh` (real import through the setup screen, needs your ISOs), `tools/compare_glb.py <imported> <reference>`.
 
 Run: `godot --path . ` then Host / Join (IP). CLI: `-- --host`, `-- --join=IP`, `-- --port=N`.
@@ -39,24 +69,24 @@ One-time setup (everything under `~`, no sudo; the flatpak sees the whole host):
 # Android SDK cmdline-tools -> ~/Android/Sdk/cmdline-tools/latest, then:
 sdkmanager --sdk_root=$HOME/Android/Sdk "platform-tools" "build-tools;36.1.0" "platforms;android-36"
 # debug keystore (kept outside the repo)
-keytool -genkeypair -keystore ~/.local/share/negatron-arena-keys/debug.keystore -storepass android \
+keytool -genkeypair -keystore ~/.local/share/neutron-arena-keys/debug.keystore -storepass android \
   -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
 # ~/.var/app/org.godotengine.Godot/config/godot/editor_settings-4.7.tres:
 #   export/android/java_sdk_path, export/android/android_sdk_path, export/android/debug_keystore(_user/_pass)
 ```
 Build (headless, output outside the repo):
 ```
-flatpak run org.godotengine.Godot --headless --path . --export-debug "Android Thor" ~/Projects/arena-assets/build/negatron-arena-debug.apk
-aapt dump badging ~/Projects/arena-assets/build/negatron-arena-debug.apk | head -3   # build-tools/36.1.0
-apksigner verify --print-certs ~/Projects/arena-assets/build/negatron-arena-debug.apk
+flatpak run org.godotengine.Godot --headless --path . --export-debug "Android Thor" ~/Projects/arena-assets/build/neutron-arena-debug.apk
+aapt dump badging ~/Projects/arena-assets/build/neutron-arena-debug.apk | head -3   # build-tools/36.1.0
+apksigner verify --print-certs ~/Projects/arena-assets/build/neutron-arena-debug.apk
 ```
-Install: `adb install -r negatron-arena-debug.apk` (or copy the apk to the Thor and open it).
+Install: `adb install -r neutron-arena-debug.apk` (or copy the apk to the Thor and open it).
 
-Game files on the Thor: copy your exported files to `/sdcard/NegatronArena/` keeping the layout
+Game files on the Thor: copy your exported files to `/sdcard/NeutronArena/` keeping the layout
 (`levels/level5c.glb`, `jimmy.glb`, `nummey.glb`, `nummey_villain.glb`), e.g.
-`adb push ~/Projects/arena-assets/levels ~/Projects/arena-assets/*.glb /sdcard/NegatronArena/` (push into the `levels` dir by hand if adb flattens it).
+`adb push ~/Projects/arena-assets/levels ~/Projects/arena-assets/*.glb /sdcard/NeutronArena/` (push into the `levels` dir by hand if adb flattens it).
 On first start the app asks for "All files access"; if the assets are missing it shows the folder to copy to and a re-check button.
-Also searched: `/sdcard/Android/data/com.negatronarena.game/files/NegatronArena` (needs no permission when pushed with adb).
+Also searched: `/sdcard/Android/data/com.neutronarena.game/files/NeutronArena` (needs no permission when pushed with adb).
 
 ## Import from the installed port apps (Android)
 If *Jimmy Neutron vs Jimmy Negatron* (`com.sirbilliams.negatron`) and/or *Boy Genius* (`com.sirbilliams.neutron1`) are installed with their
@@ -65,6 +95,6 @@ The ports share their game folder read-only through `GameFilesProvider` (signatu
 `SharedImport` (`android/plugins/sharedimport`, a Godot v2 plugin, needs the gradle export) copies only the ~40 files the converters need.
 - One-time: `tools/setup_android_build.sh` (installs the Godot gradle template), `tools/build_android_plugin.sh` (AAR).
 - Android only grants access to the **release** build signed with Arena's own key (`tools/export_release.sh`, key in
-  `~/.config/negatron-arena-signing`, never committed); its certificate digest is listed in the ports (`known_game_file_readers`).
+  `~/.config/neutron-arena-signing`, never committed); its certificate digest is listed in the ports (`known_game_file_readers`).
   Debug builds are denied: the UI then says to use the ISO. Needs Android 12+ (older Android: ISO only).
 - Desktop: "…or choose an extracted game folder" converts from an already extracted game (`NaImporter.import_from_dirs`).
