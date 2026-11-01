@@ -105,6 +105,11 @@ var is_local := false
 var world: Node  # World
 
 var model: Node3D
+var character: StringName = &""   # requested roster character (loadout "char"); "" = team default
+var model_char: StringName = &""   # the one actually built (art may be missing)
+var char_k := 1.0                  # size / foot-lift factor of that character (CharModel.K)
+var anim_scooter := ""
+var anim_scooter_stop := ""
 var anim: AnimationPlayer
 var anim_idle := ""
 var anim_run := ""
@@ -207,15 +212,8 @@ func _ready() -> void:
 		_build_camera()
 
 func _build_model() -> void:
-	var rel := "jimmy.glb" if team == Config.TEAM_JIMMY else "nummey_villain.glb"
-	model = Assets.load_scene(rel) as Node3D
-	if model == null:
-		model = MeshInstance3D.new()
-		(model as MeshInstance3D).mesh = CapsuleMesh.new()
+	_make_character_model()
 	var s := Config.WORLD_SCALE
-	base_scale = s
-	model.scale = Vector3.ONE * s
-	add_child(model)
 	if team == Config.TEAM_NEGATRON:
 		scooter_model = Assets.try_scene("nummey_scooter.glb") as Node3D
 		if scooter_model:
@@ -232,11 +230,46 @@ func _build_model() -> void:
 			jim_scooter.scale = Vector3.ONE * s
 			jim_scooter.visible = false
 			add_child(jim_scooter)
+	_play(anim_idle)
+
+## Builds `model` for the requested roster character (Jimmy / Negatron: their own glbs; the rest: CharModel). Falls back to the team default
+## when the art is missing. Sets the clip names, foot/size factors and the FeelMod. Called again when the loadout changes the character.
+func _make_character_model() -> void:
+	character = Characters.sanitize(character, team)
+	var cm: Node3D = null
+	if character != &"jimmy" and character != &"negatron":
+		cm = CharModel.build(character)
+		if cm == null:
+			character = Characters.default_for_team(team)
+	model_char = character
+	char_k = 1.0
+	cur_anim = ""
+	if cm != null:
+		model = cm
+		char_k = float(cm.get_meta("k"))
+	else:
+		var rel := "jimmy.glb" if team == Config.TEAM_JIMMY else "nummey_villain.glb"
+		model = Assets.load_scene(rel) as Node3D
+		if model == null:
+			model = MeshInstance3D.new()
+			(model as MeshInstance3D).mesh = CapsuleMesh.new()
+	base_scale = Config.WORLD_SCALE * char_k
+	model.scale = Vector3.ONE * base_scale
+	add_child(model)
 	anim = model.get_node_or_null("AnimationPlayer") as AnimationPlayer
 	if anim == null:
 		return
-	if team == Config.TEAM_JIMMY:
+	anim_scooter = ""; anim_scooter_stop = ""
+	if cm != null:
+		var roles: Dictionary = cm.get_meta("roles")
+		anim_idle = roles.get("idle", ""); anim_walk = roles.get("walk", ""); anim_run = roles.get("run", "")
+		anim_jump = roles.get("jump", ""); anim_fall = roles.get("fall", ""); anim_fly = roles.get("fly", "")
+		anim_scooter = roles.get("scooter", ""); anim_scooter_stop = roles.get("scooterstop", "")
+		if anim_walk == "": anim_walk = anim_run
+		if anim_fly == "": anim_fly = anim_run
+	elif team == Config.TEAM_JIMMY:
 		anim_idle = "jimmyidle"; anim_run = "jimmyfullrun"; anim_walk = "jimmywalk"; anim_jump = "jimmyjump"; anim_fall = "jimmyfall"; anim_fly = "jimmyfly"
+		anim_scooter = "jimmyscooter"; anim_scooter_stop = "jimmyscooterstop"
 	else:
 		# villain model + run/stop animations from nummey.glb (same skeleton)
 		var other := Assets.load_scene("nummey.glb")
@@ -248,18 +281,31 @@ func _build_model() -> void:
 					lib.add_animation(n, oap.get_animation(n).duplicate())
 		other.free()
 		anim_idle = "nummeystop"; anim_run = "nummeyrun"; anim_walk = "nummeywalk"; anim_fall = ""; anim_jump = ""; anim_fly = "nummeyfly"   # numflyair is a tumble loop: not used; Negatron holds a run frame in the air
-	AnimFix.fix_player(anim)
-	# NOT deterministic: AnimationPlayer.deterministic made every crossfade swing the spine/head ~20 deg for the blend time then snap back (found with tools/walkprobe.gd).
-	# AnimFix.fix_player gives every clip the union of all tracks (missing ones = rest pose) so un-keyed bones still fall back to rest.
-	for n in anim.get_animation_list():
-		anim.get_animation(n).loop_mode = Animation.LOOP_LINEAR
-	if anim.has_animation(anim_jump) and anim_jump == "jimmyjump":
-		anim.get_animation(anim_jump).loop_mode = Animation.LOOP_NONE   # plays once, then holds the last pose
+	if cm == null:
+		AnimFix.fix_player(anim)
+		# NOT deterministic: AnimationPlayer.deterministic made every crossfade swing the spine/head ~20 deg for the blend time then snap back (found with tools/walkprobe.gd).
+		# AnimFix.fix_player gives every clip the union of all tracks (missing ones = rest pose) so un-keyed bones still fall back to rest.
+		for n in anim.get_animation_list():
+			anim.get_animation(n).loop_mode = Animation.LOOP_LINEAR
+		if anim.has_animation(anim_jump) and anim_jump == "jimmyjump":
+			anim.get_animation(anim_jump).loop_mode = Animation.LOOP_NONE   # plays once, then holds the last pose
 	var sks := model.find_children("*", "Skeleton3D", true, false)
 	if sks.size() > 0:
 		feel_mod = FeelMod.new()
 		feel_mod.name = "FeelMod"
 		sks[0].add_child(feel_mod)
+	else:
+		feel_mod = null
+
+## Loadout changed the character: replace the model (gear is rebuilt right after by set_loadout).
+func _swap_model() -> void:
+	var old := model
+	if old:
+		remove_child(old)
+		old.queue_free()
+	feel_mod = null
+	_make_character_model()
+	lift_cur = FootTable.lift(anim_idle) if anim else 0.0
 	_play(anim_idle)
 
 func _play(n: String, spd := 1.0, blend := 0.18) -> void:
@@ -735,13 +781,13 @@ func _animate() -> void:
 		if jim_scooter:
 			jim_scooter.visible = alive and ult_is(&"goddard_scooter")
 			jim_scooter.rotation.y = model_yaw + MODEL_YAW - PI / 2.0   # scooter.glb length axis is Z, jimmybase faces X natively
-			jim_scooter.scale = Vector3.ONE * base_scale * cur_shrink
+			jim_scooter.scale = Vector3.ONE * Config.WORLD_SCALE * cur_shrink
 		model.visible = show_body and not ult_is(&"rocket_ship") and not neg_sc
 		if scooter_model:
 			scooter_model.visible = alive and neg_sc
 			scooter_model.rotation.y = model_yaw + MODEL_YAW
-			scooter_model.scale = Vector3.ONE * base_scale * cur_shrink
-			scooter_model.position.y = scooter_off * base_scale * cur_shrink
+			scooter_model.scale = Vector3.ONE * Config.WORLD_SCALE * cur_shrink
+			scooter_model.position.y = scooter_off * Config.WORLD_SCALE * cur_shrink
 			if neg_sc and scooter_anim and scooter_anim.current_animation != "nummeyscooter":
 				scooter_anim.play("nummeyscooter")
 		model.scale = Vector3.ONE * base_scale * cur_shrink * pk
@@ -753,8 +799,8 @@ func _animate() -> void:
 	_update_gun()
 	if label:
 		label.visible = alive and (not is_local or is_bot)
-	if team == Config.TEAM_JIMMY and jim_scooter != null and ult_is(&"goddard_scooter") and anim and anim.has_animation("jimmyscooter"):
-		_play("jimmyscooter" if h_speed > 0.4 else "jimmyscooterstop", 1.0)
+	if jim_scooter != null and ult_is(&"goddard_scooter") and anim and anim_scooter != "" and anim.has_animation(anim_scooter):
+		_play(anim_scooter if h_speed > 0.4 else anim_scooter_stop, 1.0)
 	else:
 		if not is_local:
 			vy_est = lerpf(vy_est, (position.y - _last_y) / maxf(dt, 0.001), 0.3)
@@ -788,11 +834,11 @@ func _animate() -> void:
 		lift_cur = lerpf(lift_cur, tgt, 1.0 - exp(-14.0 * dt))
 	vis_off *= exp(-14.0 * dt)
 	if model:
-		model.position.y = lift_cur * cur_shrink + vis_off + (1.0 - pk) * 0.7
+		model.position.y = lift_cur * char_k * cur_shrink + vis_off + (1.0 - pk) * 0.7
 
 ## Playback speed of a walk / run clip: ground speed matched (planted foot does not slide); negative = backpedal; strafe leg turn is compensated.
 func _gait_speed(clip: String, lo: float, hi: float) -> float:
-	var sp := h_speed / maxf(FootTable.gs(clip), 0.1)
+	var sp := h_speed / maxf(FootTable.gs(clip) * char_k, 0.1)
 	if strafe_on:
 		sp /= maxf(cos(_strafe_resid), 0.55)
 	sp = clampf(sp, lo, hi)
@@ -982,9 +1028,14 @@ func set_alive_at(t: Transform3D) -> void:
 
 ## Applies a server-confirmed loadout (also builds the gear visuals).
 func set_loadout(lo: Dictionary, mhp: int) -> void:
-	loadout = Loadout.sanitize(lo)
+	loadout = Loadout.sanitize(lo, team)
 	max_hp = mhp
 	weapon = WeaponData.get_weapon(loadout.primary)
+	var want: StringName = loadout.get("char", &"")
+	if want != character:
+		character = want
+		if model != null and Characters.sanitize(want, team) != model_char and is_inside_tree():
+			_swap_model()
 	gadget = GadgetData.get_gadget(loadout.gadget)
 	movement = MovementData.get_movement(loadout.movement)
 	ultimate = UltimateData.get_ultimate(loadout.ultimate)
@@ -1167,18 +1218,29 @@ func _build_jetpack() -> void:
 
 ## Palm marker (centre of the right hand mesh, bone-local raw units measured with tools/handprobe.gd) on the right-hand bone.
 func _attach_palm() -> void:
+	palm = null
 	var sk: Skeleton3D = null
 	if model:
 		var l := model.find_children("*", "Skeleton3D", true, false)
 		if l.size() > 0:
 			sk = l[0] as Skeleton3D
-	if sk == null or sk.find_bone("Bip01 R Hand") < 0:
+	if model and model.has_meta("palm_off") and model.get_meta("skinned") == false:
+		# no skeleton (Libby): fixed point near her right hand, in model space (raw units, sampled from her mesh)
+		palm = Node3D.new()
+		palm.position = model.get_meta("palm_off")
+		model.add_child(palm)
+		return
+	var bone := "Bip01 R Hand"
+	if sk == null or sk.find_bone(bone) < 0:
 		return
 	gun_ba = BoneAttachment3D.new()
-	gun_ba.bone_name = "Bip01 R Hand"
+	gun_ba.bone_name = bone
 	sk.add_child(gun_ba)
 	palm = Node3D.new()
-	palm.position = PALM_NEG if team == Config.TEAM_NEGATRON else PALM_JIM
+	if model.has_meta("palm_off"):
+		palm.position = model.get_meta("palm_off")
+	else:
+		palm.position = PALM_NEG if team == Config.TEAM_NEGATRON else PALM_JIM
 	gun_ba.add_child(palm)
 
 ## Keeps the held weapon in the palm with its barrel along the aim (body yaw, plus camera pitch for the local player).

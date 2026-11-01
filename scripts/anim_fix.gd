@@ -71,6 +71,60 @@ static func _face_forward(ap: AnimationPlayer) -> void:
 			turned.append(clip)
 		print("AnimFix: %s faced %s, turned %s by 180 deg" % [clip, fwd.snapped(Vector3.ONE * 0.01), bname])
 
+## Exact version for the roster characters (scripts/char_model.gd): their own clips / retargeted Jimmy clips can face any direction
+## (the Biped roots differ), so every clip is turned about the model's up axis until its forward (see _face_forward) is +X.
+static func face_exact(ap: AnimationPlayer) -> void:
+	var root := ap.get_node_or_null(ap.root_node) as Node3D
+	if root == null:
+		return
+	var sk := _find_skeleton(root)
+	if sk == null or sk.find_bone("Bip01 L Thigh") < 0 or sk.find_bone("Bip01 R Thigh") < 0:
+		return
+	var sk_xf := Transform3D.IDENTITY
+	var n: Node = sk
+	while n != root and n != null:
+		if n is Node3D:
+			sk_xf = (n as Node3D).transform * sk_xf
+		n = n.get_parent()
+	for clip in ap.get_animation_list():
+		var a := ap.get_animation(clip)
+		if a.has_meta("face_exact_done"):
+			continue
+		a.set_meta("face_exact_done", true)
+		var t := a.length * 0.5
+		var l := sk_xf * _bone_global(sk, a, sk.find_bone("Bip01 L Thigh"), t).origin
+		var r := sk_xf * _bone_global(sk, a, sk.find_bone("Bip01 R Thigh"), t).origin
+		var fwd := (l - r).cross(Vector3.UP)
+		fwd.y = 0.0
+		if fwd.length() < 1e-4:
+			continue
+		var ang := atan2(fwd.z, fwd.x)   # rotation about +Y taking fwd to +X
+		if absf(ang) < 0.03:
+			continue
+		var top := _top_animated_bone(sk, a)
+		if top < 0:
+			continue
+		var parent_rest := Transform3D.IDENTITY
+		var p := sk.get_bone_parent(top)
+		if p >= 0:
+			parent_rest = sk.get_bone_global_rest(p)
+		var up_sk := (sk_xf.basis.inverse() * Vector3.UP).normalized()
+		var pr := parent_rest.basis.orthonormalized()
+		var conj := (pr.inverse() * Basis(up_sk, ang) * pr).get_rotation_quaternion()
+		var bname := sk.get_bone_name(top)
+		for ti in a.get_track_count():
+			var path := a.track_get_path(ti)
+			if path.get_subname_count() == 0 or path.get_concatenated_subnames() != bname:
+				continue
+			match a.track_get_type(ti):
+				Animation.TYPE_ROTATION_3D:
+					for k in a.track_get_key_count(ti):
+						a.track_set_key_value(ti, k, conj * (a.track_get_key_value(ti, k) as Quaternion))
+				Animation.TYPE_POSITION_3D:
+					for k in a.track_get_key_count(ti):
+						a.track_set_key_value(ti, k, conj * (a.track_get_key_value(ti, k) as Vector3))
+		print("AnimFix: %s faced %s, turned %s by %d deg" % [clip, fwd.normalized().snapped(Vector3.ONE * 0.01), bname, roundi(rad_to_deg(ang))])
+
 static func _find_skeleton(n: Node) -> Skeleton3D:
 	if n is Skeleton3D:
 		return n

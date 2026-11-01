@@ -5,6 +5,7 @@ extends Control
 ## Emits `confirmed(loadout)`; the owner of the menu decides what to do with it.
 signal confirmed(loadout: Dictionary)
 signal team_switch_requested
+signal character_requested   ## the CHARACTER row was pressed: the owner opens CharacterSelect and calls set_character()
 
 var loadout := Loadout.default_loadout()
 var team := 0   ## set by the owner; only changes display names
@@ -15,6 +16,7 @@ var _info: Label
 var _title: Label
 var _confirm: Button
 var _class_btns := {}
+var _char_btn: Button
 
 func _ready() -> void:
 	_options[&"primary"] = WeaponData.selectable_ids()
@@ -52,6 +54,12 @@ func _ready() -> void:
 		b.focus_entered.connect(_show_class.bind(cid))
 		cls.add_child(b)
 		_class_btns[cid] = b
+	_char_btn = Button.new()
+	_char_btn.custom_minimum_size = Vector2(0, 46)
+	_char_btn.add_theme_font_size_override("font_size", 22)
+	_char_btn.pressed.connect(func(): character_requested.emit())
+	_char_btn.focus_entered.connect(func(): _desc.text = "Character: %s" % Characters.ROSTER[_char_id()].blurb)
+	box.add_child(_char_btn)
 	for s in Balance.SLOTS:
 		var b := Button.new()
 		b.custom_minimum_size = Vector2(0, 46)
@@ -108,7 +116,17 @@ func _desc_of(s: StringName, id: StringName) -> String:
 		&"movement": return MovementData.get_movement(id).desc
 		_: return UltimateData.get_ultimate(id).desc
 
+func _char_id() -> StringName:
+	return Characters.sanitize(loadout.get("char", ""), team)
+
+func set_character(id: StringName) -> void:
+	loadout["char"] = Characters.sanitize(id, team)
+	if is_node_ready():
+		_refresh()
+
 func _refresh() -> void:
+	if _char_btn:
+		_char_btn.text = "Character:   %s" % Characters.display_name(_char_id())
 	for s in Balance.SLOTS:
 		(_slot_btns[s] as Button).text = "%s:   <  %s  >" % [str(s).capitalize(), _name_of(s, loadout[s])]
 	for cid in _class_btns:
@@ -119,7 +137,9 @@ func _refresh() -> void:
 		(_class_btns[cid] as Button).modulate = Color(0.6, 1.0, 0.6) if match_all else Color.WHITE
 
 func _apply_class(cid: StringName) -> void:
+	var ch = loadout.get("char", "")
 	loadout = Loadout.from_class(cid)
+	loadout["char"] = ch
 	_refresh()
 
 func _cycle(s: StringName, d: int) -> void:

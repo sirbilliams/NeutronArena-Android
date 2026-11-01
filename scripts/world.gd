@@ -147,8 +147,13 @@ func _team_msg(id: int, msg: String) -> void:
 func c_team_msg(msg: String) -> void:
 	team_refused.emit(msg)
 
+func _default_lo(team: int) -> Dictionary:
+	var lo := Loadout.default_loadout()
+	lo["char"] = Characters.default_for_team(team)
+	return lo
+
 func _new_info(team: int) -> Dictionary:
-	return {"team": team, "hp": Config.MAX_HP, "alive": true, "kills": 0, "deaths": 0, "last_fire": -10.0, "loadout": Loadout.default_loadout(), "pending": {}, "confirmed": false, "max_hp": Config.MAX_HP, "st": {}, "shield_hp": 0, "ult_charge": 0, "gadget_ready": 0.0, "ram_cd": {}}
+	return {"team": team, "hp": Config.MAX_HP, "alive": true, "kills": 0, "deaths": 0, "last_fire": -10.0, "loadout": _default_lo(team), "pending": {}, "confirmed": false, "max_hp": Config.MAX_HP, "st": {}, "shield_hp": 0, "ult_charge": 0, "gadget_ready": 0.0, "ram_cd": {}}
 
 func _srv_join(id: int, choice: int) -> void:
 	if info.has(id):
@@ -216,14 +221,25 @@ func _srv_bot_loadout(id: int) -> void:
 	var classes: Array = Balance.CLASSES.keys()
 	var inf: Dictionary = info[id]
 	inf.pending = Loadout.from_class(classes[randi() % classes.size()])
+	inf.pending["char"] = _random_char(inf.team)
 	inf.confirmed = true
 	_srv_apply_loadout(id, true)
+
+## Bots pick a random character of their team (prefers the ones whose art this host has).
+func _random_char(team: int) -> StringName:
+	var ids := Characters.ids_for_team(team).filter(func(c): return Characters.available(c))
+	if ids.is_empty():
+		return Characters.default_for_team(team)
+	return ids[randi() % ids.size()]
 
 ## Server: move a joined player to the other team. Kills/deaths/score untouched; the player respawns fresh at the new side.
 func _srv_switch_team(id: int, team: int) -> void:
 	var inf: Dictionary = info[id]
 	srv_make_room(team)
 	inf.team = team
+	inf.loadout["char"] = Characters.sanitize(inf.loadout.get("char", ""), team)   # a Jimmy-side character cannot follow to Negatron
+	if not inf.pending.is_empty():
+		inf.pending["char"] = Characters.sanitize(inf.pending.get("char", ""), team)
 	inf.st.clear(); inf.shield_hp = 0; inf.ram_cd.clear()
 	inf.hp = inf.max_hp
 	inf.alive = true
@@ -559,7 +575,7 @@ func _srv_set_loadout(id: int, wire: Dictionary) -> void:
 	if not info.has(id):
 		return
 	var inf: Dictionary = info[id]
-	inf.pending = Loadout.sanitize(wire)
+	inf.pending = Loadout.sanitize(wire, inf.team)
 	if id > 0:
 		c_pending.rpc_id(id, Loadout.to_wire(inf.pending))
 	if not inf.confirmed:
@@ -714,7 +730,7 @@ func c_loadout(id: int, wire: Dictionary, mhp: int) -> void:
 func c_pending(wire: Dictionary) -> void:
 	var me: Player = players.get(multiplayer.get_unique_id())
 	if me:
-		me.pending_loadout = Loadout.sanitize(wire)
+		me.pending_loadout = Loadout.sanitize(wire, me.team)
 	loadout_pending.emit()
 
 @rpc("authority", "call_local", "reliable")
