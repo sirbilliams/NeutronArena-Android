@@ -1,20 +1,10 @@
 extends Node
 func _ready() -> void:
-	for rel in ["nummey.glb", "jimmy.glb"]:
-		var o := Assets.load_scene(rel)
-		var ap := o.get_node("AnimationPlayer") as AnimationPlayer
-		for an in ["nummeywalk", "nummeyrun", "jimmywalk", "jimmyfullrun", "jimmyidle"]:
-			if not ap.has_animation(an): continue
-			var a := ap.get_animation(an)
-			print("== ", an, " len ", a.length, " tracks ", a.get_track_count())
-			for t in a.get_track_count():
-				var p := str(a.track_get_path(t))
-				if a.track_get_type(t) == 1 and (p.ends_with("Dummy01") or p.ends_with("Bip01") or "Pelvis" in p or "__Root" in p):
-					var s := p + ": "
-					var n := a.track_get_key_count(t)
-					for k in range(0, n, max(1, n / 10)):
-						s += " %.2f:%s" % [a.track_get_key_time(t, k), (a.track_get_key_value(t, k) as Vector3).snapped(Vector3.ONE * 0.1)]
-					print(s)
-				if a.track_get_type(t) == 2 and (p.ends_with("Dummy01") or p.ends_with("Bip01") or "__Root" in p):
-					print(p, " rot first/last ", a.track_get_key_value(t, 1), a.track_get_key_value(t, a.track_get_key_count(t) - 1))
+	var m := Assets.load_scene("jimmy.glb") as Node3D
+	add_child(m)
+	var sk: Skeleton3D = m.find_children("*", "Skeleton3D", true, false)[0]
+	for n in ["Bip01 L Toe0", "Bip01 R Toe0", "Bip01 L Foot", "Bip01 L Calf"]:
+		print(n, " rest local ", sk.get_bone_rest(sk.find_bone(n)).origin)
+	var b := Assets.load_scene("ase/n2/goofbootfly.glb") as Node3D
+	print("boot aabb ", Fx.aabb_of(b))
 	get_tree().quit()

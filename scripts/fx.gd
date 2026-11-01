@@ -104,3 +104,17 @@ static func aabb_of(n: Node3D) -> AABB:
 		box = bb if first else box.merge(bb)
 		first = false
 	return box
+
+## Make every surface of a model see-through (alpha a), unshaded; used for the energy bubble so the player stays visible inside it.
+static func translucent(n: Node, a: float) -> void:
+	for node in n.find_children("*", "MeshInstance3D", true, false):
+		var mi := node as MeshInstance3D
+		if mi.mesh == null:
+			continue
+		for i in mi.mesh.get_surface_count():
+			var m := mi.get_active_material(i)
+			var sm: StandardMaterial3D = (m.duplicate() if m is StandardMaterial3D else StandardMaterial3D.new())
+			sm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+			sm.albedo_color = Color(sm.albedo_color.r, sm.albedo_color.g, sm.albedo_color.b, a)
+			sm.cull_mode = BaseMaterial3D.CULL_DISABLED
+			mi.set_surface_override_material(i, sm)
