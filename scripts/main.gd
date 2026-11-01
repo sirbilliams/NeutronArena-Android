@@ -18,7 +18,6 @@ func _ready() -> void:
 		elif a.begins_with("--port="): port = int(a.substr(7))
 		elif a.begins_with("--test="): test = a.substr(7)
 		elif a.begins_with("--shot="): shot_path = a.substr(7)
-	Config.request_android_storage()
 	if test != "":
 		Config.test_mode = true
 		var lo_test := test.begins_with("lo_")
@@ -36,8 +35,20 @@ func _ready() -> void:
 			get_tree().quit()
 	elif join_ip != "":
 		start_join(join_ip)
+	elif not Config.assets_ok():
+		_show_setup(false)
 	else:
 		_build_menu()
+
+## First-launch setup (or "Re-import game files" from the menu): pick the CD images, import on the device.
+func _show_setup(can_go_back: bool) -> void:
+	if menu:
+		menu.queue_free(); menu = null
+	var setup := SetupScreen.new(can_go_back)
+	add_child(setup)
+	setup.finished.connect(func(ok: bool):
+		setup.queue_free()
+		_build_menu())
 
 func _build_menu() -> void:
 	menu = Control.new()
@@ -70,18 +81,22 @@ func _build_menu() -> void:
 	var join_btn := Button.new(); join_btn.text = "Join game"
 	join_btn.pressed.connect(func(): Config.last_ip = ip.text; start_join(ip.text))
 	box.add_child(join_btn)
-	var al := Label.new(); al.text = "Asset folder (your own game export):"
+	var reimp := Button.new(); reimp.text = "Re-import game files (Neutron / Boy Genius ISO)"
+	reimp.pressed.connect(func(): _show_setup(true))
+	box.add_child(reimp)
+	var al := Label.new(); al.text = "Dev: asset folder with exported glbs (optional, instead of the import):"
 	box.add_child(al)
 	var ad := LineEdit.new(); ad.text = Config.asset_dir
-	ad.text_changed.connect(func(t): Config.asset_dir = t; Config.save_settings(); _check_assets())
+	ad.text_changed.connect(func(t): Config.asset_dir = t; Config.dev_asset_dir = t; Config.save_settings(); _check_assets())
 	box.add_child(ad)
 	status = Label.new()
 	status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	box.add_child(status)
-	var retry := Button.new(); retry.text = "Check again (grant storage access first)"
+	var retry := Button.new(); retry.text = "Check again"
 	retry.pressed.connect(func():
-		Config.request_android_storage()
-		if OS.get_name() == "Android": Config.find_android_assets()
+		if OS.get_name() == "Android" and not Config.imported_ok():
+			Config.request_android_storage()
+			Config.find_android_assets()
 		ad.text = Config.asset_dir
 		_check_assets())
 	box.add_child(retry)
@@ -94,11 +109,9 @@ func _build_menu() -> void:
 func _check_assets() -> void:
 	if status:
 		if Config.assets_ok():
-			status.text = ""
-		elif OS.get_name() == "Android":
-			status.text = "ASSETS NOT FOUND.\nCopy your exported game files (levels/level5c.glb, jimmy.glb, nummey.glb, nummey_villain.glb) to:\n%s\n(keep the 'levels' subfolder), allow 'All files access' for this app when asked, then press the button below.\nAlso searched: %s" % [Config.ANDROID_ASSET_DIRS[0], ", ".join(Config.ANDROID_ASSET_DIRS.slice(1))]
+			status.text = "" if Config.has_n1() else "Game files OK. Boy Genius ISO not imported: N1 gadgets use simple placeholder models (use Re-import to add it)."
 		else:
-			status.text = "Assets not found in that folder (needs levels/level5c.glb, jimmy.glb, nummey*.glb)."
+			status.text = "Game files not found. Use \"Re-import game files\" to pick your CD images."
 
 func _enter_game() -> bool:
 	if not Config.assets_ok():
