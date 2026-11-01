@@ -77,8 +77,10 @@ func _server() -> void:
 	check(world.info[1].kills == 1, "host has 1 kill")
 	await get_tree().create_timer(Config.RESPAWN_TIME + 0.4).timeout
 	check(world.info[victim_id].alive and world.info[victim_id].hp == Config.MAX_HP, "victim respawned with full hp")
-	var rd := victim.global_position.distance_to(world.level.raw_to_world(ArenaLevel.MUSEUM_CENTER))
-	check(rd < 15.0, "respawned at museum base (%.1f m)" % rd)
+	var zd := 1e9
+	for z in world.level.zones[Config.TEAM_NEGATRON]:
+		zd = minf(zd, victim.global_position.distance_to(world.level.raw_to_world(z.raw)))
+	check(zd < 15.0, "respawned at a Negatron zone (%.1f m)" % zd)
 	# friendly-fire / no self-damage is implicit (bubble ignores shooter + same team)
 	# client retaliates: wait for Jimmy to be killed by the client
 	check(await wait_for(func(): return world.team_score[1] >= 1, 25.0), "client killed host (client->server fire path)")
@@ -123,6 +125,9 @@ func _client() -> void:
 	check(await wait_for(func(): return ev.respawn >= 1, 10.0), "client respawned")
 	await get_tree().create_timer(1.0).timeout
 	var host: Player = world.players[1]
+	# the bases are ~390 m apart now: put the client 4 m from the host before it retaliates
+	me.global_position = host.global_position + Vector3(0, 0.3, 4)
+	await get_tree().create_timer(1.0).timeout
 	for i in 5:
 		var tp := host.global_position + Vector3(0, 0.7, 0)
 		me.fire((tp - me.muzzle()).normalized())
