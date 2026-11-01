@@ -12,7 +12,8 @@ Updated 2026-10-31: Playable prototype, Android (AYN Thor tested) + Linux deskto
 * Team select (Jimmy/Negatron/Auto, max 5 per team, 10 s cooldown to switch).
 * 5 classes with loadouts: primary (e.g., bubble gun, burp gun, water gun, mega burp gun, baseball launcher), gadget (laser trap, drone, shield, shrink ray, phase), movement (jetpack, goof boots, grapple, sprint, bubble float), and ultimate (e.g., rocket ship).
 * Team scooters.
-* LAN/online host-join over ENet, server-authoritative.
+* LAN/online host-join over ENet, server-authoritative. LAN games are found automatically (UDP beacon, port 7778); Quick Play joins one or hosts with bots.
+* Bots (server-side, easy/normal/hard) fill both teams to 5v5; a joining human replaces a bot. Host menu: "Bots: fill to 5v5". CLI: `--bots`/`--nobots`, `--difficulty=`. Tab / Start shows the scoreboard. Test: `tests/run_bot_test.sh`.
 
 ## Getting the art (legal)
 Art is imported on the device from the player's own *Jimmy Neutron vs Jimmy Negatron* CD image (required) and optionally *Jimmy Neutron: Boy Genius* CD image, or pulled from the installed *Neutron 1* / *Neutron 2* Android ports (sirbilliams/neutron1-Android, sirbilliams/neutron2-Android, latest builds). Nothing from the games is in this repo or the APK.
@@ -22,7 +23,7 @@ Art is imported on the device from the player's own *Jimmy Neutron vs Jimmy Nega
 * Remote players' gun pitch not synced.
 * Jetpack flames small.
 * APK 73 MB (engine library not stripped).
-* No bots yet.
+* Bots: no grapple use, route-following only (no baked navmesh); LAN discovery untested on Android (may need a multicast lock).
 * No Thor bottom-screen scoreboard yet.
 
 ## License
