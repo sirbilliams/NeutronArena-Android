@@ -1,10 +1,18 @@
 # Negatron Arena (Phase 1 prototype)
 
-Original 5v5 bubble-gun team deathmatch (Jimmy vs Negatron). Loads character and level art at runtime from the
-player's own game export (glb files, never committed). Godot 4.7.
+Original 5v5 bubble-gun team deathmatch (Jimmy vs Negatron). The art comes from the player's own copies of the PC games and is
+imported **inside the app** (nothing is bundled or committed): first launch shows a Setup screen, the player picks their Jimmy Neutron vs.
+Jimmy Negatron CD image (required) and optionally the Jimmy Neutron: Boy Genius CD image (adds the N1 gadget models); the app unpacks the
+InstallShield cabinet and converts models, animations and the Carl city level to glb files in `user://imported/` (about 5 MB, ~133 MB of
+temporary disk while it runs). "Re-import game files" in the menu runs it again. Godot 4.7.
 
-Assets folder (default `~/Projects/arena-assets`, change in the menu or `NEGATRON_ASSETS=...`) must contain
-`levels/level5c.glb`, `jimmy.glb`, `nummey_villain.glb`, `nummey.glb`.
+How it works: `addons/naimport` is a GDExtension (`native/`, C++) with the ISO 9660 + unshield reader, the Granny decoder, the OMT
+level/prop reader, the ASE parser and the three glTF writers (ports of the offline tools in neutron2 `tools/granny|omt|ase`).
+`scripts/setup_screen.gd` is the UI (touch + gamepad, per-stage progress, errors for wrong disc / not an ISO / no space).
+Build the library (not committed): `native/build.sh linux` and `native/build.sh android` (inside the `omtbuild` distrobox; Android needs the
+NDK `ndk;27.2.12479018`); then `godot --headless --path . --import`. Details + licences: `native/THIRD_PARTY.md`.
+Dev fallback (the old way): an asset folder with the glbs (`NEGATRON_ASSETS=...` or the menu field) is used when nothing is imported.
+Tests: `tests/run_setup_test.sh` (real import through the setup screen, needs your ISOs), `tools/compare_glb.py <imported> <reference>`.
 
 Run: `godot --path . ` then Host / Join (IP). CLI: `-- --host`, `-- --join=IP`, `-- --port=N`.
 Controls: WASD + mouse + LMB, or left stick / right stick / RT, A = jump, Esc frees the mouse.

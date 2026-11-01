@@ -12,7 +12,8 @@ const TEAM_NAMES := ["JIMMY", "NEGATRON"]
 const TEAM_COLORS := [Color(0.25, 0.65, 1.0), Color(0.85, 0.25, 0.95)]
 const SETTINGS := "user://settings.cfg"
 
-var asset_dir := ""
+var asset_dir := ""          # where the glb files are read from (imported ones, or a dev folder)
+var dev_asset_dir := ""      # optional: a folder with exported glbs (dev fallback, the old way)
 var last_ip := "127.0.0.1"
 var test_mode := false   # headless tests: no local input
 
@@ -24,30 +25,54 @@ const ANDROID_ASSET_DIRS := [
 	"/sdcard/Android/data/com.negatronarena.game/files/NegatronArena",
 ]
 
+## Art imported on the device from the player's own game CDs (scripts/setup_screen.gd -> NaImporter). Never committed.
+const IMPORT_URL := "user://imported"
+const IMPORT_VERSION := 1
+
+func import_dir() -> String:
+	return ProjectSettings.globalize_path(IMPORT_URL)
+
+## True when a complete import is in place (marker written by the setup screen after a successful run).
+func imported_ok() -> bool:
+	var cf := ConfigFile.new()
+	return cf.load(IMPORT_URL.path_join("import.cfg")) == OK and int(cf.get_value("import", "version", 0)) == IMPORT_VERSION \
+		and FileAccess.file_exists(import_dir().path_join("levels/level5c.glb")) and FileAccess.file_exists(import_dir().path_join("jimmy.glb"))
+
+## True when the Boy Genius disc was imported too (N1 gadget models).
+func has_n1() -> bool:
+	return FileAccess.file_exists(asset_path("ase/n1/strato.glb"))
+
 func _ready() -> void:
-	asset_dir = OS.get_environment("HOME").path_join("Projects/arena-assets")
+	dev_asset_dir = OS.get_environment("HOME").path_join("Projects/arena-assets")
 	if OS.get_name() == "Android":
-		asset_dir = ANDROID_ASSET_DIRS[0]
+		dev_asset_dir = ANDROID_ASSET_DIRS[0]
 	var cf := ConfigFile.new()
 	if cf.load(SETTINGS) == OK:
-		asset_dir = cf.get_value("game", "asset_dir", asset_dir)
+		dev_asset_dir = cf.get_value("game", "asset_dir", dev_asset_dir)
 		last_ip = cf.get_value("game", "last_ip", last_ip)
+	asset_dir = dev_asset_dir
+	if imported_ok():
+		asset_dir = import_dir()
 	var env := OS.get_environment("NEGATRON_ASSETS")
 	if env != "":
 		asset_dir = env
-	if OS.get_name() == "Android":
+	elif OS.get_name() == "Android" and not assets_ok():
 		find_android_assets()
 	_setup_input()
 
+## Called after a (re-)import: use the imported files.
+func use_imported() -> void:
+	asset_dir = import_dir()
+
 func save_settings() -> void:
 	var cf := ConfigFile.new()
-	cf.set_value("game", "asset_dir", asset_dir)
+	cf.set_value("game", "asset_dir", dev_asset_dir)
 	cf.set_value("game", "last_ip", last_ip)
 	cf.save(SETTINGS)
 
 ## Android: ask for storage access (runtime + All-files access declared in the export preset).
 func request_android_storage() -> void:
-	if OS.get_name() == "Android":
+	if OS.get_name() == "Android" and not imported_ok():
 		OS.request_permissions()
 
 ## Android: switch asset_dir to the first candidate folder that holds the game files; returns true if found.
