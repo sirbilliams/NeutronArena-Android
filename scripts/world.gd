@@ -458,7 +458,10 @@ func c_add_player(id: int, team: int, tr: Transform3D) -> void:
 	p.peer_id = id
 	p.team = team
 	p.world = self
-	p.transform = tr
+	# The body never rotates: facing lives in model_yaw/cam_yaw (world space). Rotating the body by the spawn
+	# yaw doubled it on the model (Jimmy's base faces ~180 deg: he ran face-first on the Thor, Negatron's ~0 hid it).
+	p.position = tr.origin
+	p.spawn_yaw = tr.basis.get_euler().y
 	players_root.add_child(p)
 	players[id] = p
 	player_added.emit(id)

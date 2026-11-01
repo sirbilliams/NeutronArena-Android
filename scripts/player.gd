@@ -147,6 +147,7 @@ var cam_pivot: Node3D
 var cam_arm: SpringArm3D
 var cam: Camera3D
 var cam_yaw := 0.0
+var spawn_yaw := 0.0     # facing at spawn (world yaw); the body itself stays unrotated
 var cam_pitch := -0.15
 var label: Label3D
 # test hook
@@ -198,6 +199,9 @@ func _ready() -> void:
 	fx_mark.visible = false
 	fx_mark.render_priority = 5
 	add_child(fx_mark)
+	model_yaw = spawn_yaw
+	cam_yaw = spawn_yaw
+	t_yaw = spawn_yaw
 	set_loadout(loadout, max_hp)
 	if is_local and not is_bot:
 		_build_camera()
@@ -296,7 +300,7 @@ func _build_camera() -> void:
 	cam.h_offset = 0.55
 	cam_arm.add_child(cam)
 	cam.current = true
-	cam_yaw = rotation.y
+	cam_yaw = spawn_yaw
 	_update_cam(0.0)
 
 ## Render-rate camera: follows the physics-interpolated body with slight lag (horizontal tighter than vertical).
