@@ -82,6 +82,12 @@ var anim: AnimationPlayer
 var anim_idle := ""
 var anim_run := ""
 var anim_walk := ""
+var anim_jump := ""
+var anim_fall := ""
+var anim_fly := ""
+var vy_est := 0.0
+var _last_y := 0.0
+var jp_attach: BoneAttachment3D
 var air_time := 0.0
 var cur_anim := ""
 var model_yaw := 0.0
@@ -195,7 +201,7 @@ func _build_model() -> void:
 	if anim == null:
 		return
 	if team == Config.TEAM_JIMMY:
-		anim_idle = "jimmyidle"; anim_run = "jimmyfullrun"; anim_walk = "jimmywalk"
+		anim_idle = "jimmyidle"; anim_run = "jimmyfullrun"; anim_walk = "jimmywalk"; anim_jump = "jimmyjump"; anim_fall = "jimmyfall"; anim_fly = "jimmyfly"
 	else:
 		# villain model + run/stop animations from nummey.glb (same skeleton)
 		var other := Assets.load_scene("nummey.glb")
@@ -206,24 +212,20 @@ func _build_model() -> void:
 				if oap.has_animation(n) and not lib.has_animation(n):
 					lib.add_animation(n, oap.get_animation(n).duplicate())
 		other.free()
-		anim_idle = "nummeystop"; anim_run = "nummeyrun"; anim_walk = "nummeywalk"
+		anim_idle = "nummeystop"; anim_run = "nummeyrun"; anim_walk = "nummeywalk"; anim_fall = ""; anim_jump = ""; anim_fly = "nummeyfly"   # numflyair is a tumble loop: not used; Negatron holds a run frame in the air
+	anim.deterministic = true   # tracks a clip does not key blend back to the rest pose (jump/fly clips key extra bones)
 	for n in anim.get_animation_list():
 		anim.get_animation(n).loop_mode = Animation.LOOP_LINEAR
+	if anim.has_animation(anim_jump) and anim_jump == "jimmyjump":
+		anim.get_animation(anim_jump).loop_mode = Animation.LOOP_NONE   # plays once, then holds the last pose
 	_play(anim_idle)
 
 func _play(n: String, spd := 1.0, blend := 0.18) -> void:
 	if anim == null or not anim.has_animation(n):
 		return
 	if cur_anim != n:
-		# walk <-> run keep the cycle phase so the feet stay in step through the crossfade
-		var keep := (cur_anim == anim_walk and n == anim_run) or (cur_anim == anim_run and n == anim_walk)
-		var frac := 0.0
-		if keep and anim.current_animation_length > 0.0:
-			frac = anim.current_animation_position / anim.current_animation_length
 		cur_anim = n
-		anim.play(n, blend)
-		if keep:
-			anim.seek(frac * anim.get_animation(n).length, false)
+		anim.play(n, blend)   # (seek-to-keep-phase flashed the rest pose for a frame, so plain crossfade)
 	anim.speed_scale = spd
 
 ## idle / walk / run / air from horizontal speed (hysteresis so it never flaps); returns the gait
@@ -696,6 +698,9 @@ func _animate() -> void:
 	if team == Config.TEAM_JIMMY and jim_scooter != null and ult_is(&"goddard_scooter") and anim and anim.has_animation("jimmyscooter"):
 		_play("jimmyscooter" if h_speed > 0.4 else "jimmyscooterstop", 1.0)
 	else:
+		if not is_local:
+			vy_est = lerpf(vy_est, (position.y - _last_y) / maxf(dt, 0.001), 0.3)
+		_last_y = position.y
 		var grounded: bool = _was_floor if is_local else t_grounded
 		air_time = 0.0 if grounded else air_time + dt
 		gait = _gait_for(h_speed, air_time > 0.08)
@@ -707,9 +712,16 @@ func _animate() -> void:
 			&"run":
 				_play(anim_run, clampf(h_speed / maxf(FootTable.gs(anim_run), 0.1), 0.7, 2.4))
 			&"air":
-				# no jump clip in the art: hold a tucked run frame
-				if cur_anim == anim_run:
-					anim.speed_scale = 0.0
+				var vy := velocity.y if is_local else vy_est
+				var fl := eff_flags()
+				if (fl & 7) != 0 and anim_fly != "" and anim.has_animation(anim_fly):
+					_play(anim_fly, 1.0, 0.15)   # jetpack thrust / glide / bubble float
+				elif vy > -9.0 and anim.has_animation(anim_jump):
+					_play(anim_jump, 1.0, 0.1)    # the jump clip covers the whole short arc
+				elif vy <= -9.0 and anim.has_animation(anim_fall):
+					_play(anim_fall, 1.0, 0.15)   # long fall
+				elif cur_anim == anim_run:
+					anim.speed_scale = 0.0   # fallback: hold a run frame
 				else:
 					_play(anim_run, 0.0, 0.12)
 					anim.seek(FootTable.AIR_T.get(anim_run, 0.2), false)
@@ -808,6 +820,8 @@ func set_loadout(lo: Dictionary, mhp: int) -> void:
 func _build_gear() -> void:
 	if gear:
 		gear.queue_free()
+	if jp_attach:
+		jp_attach.queue_free(); jp_attach = null
 	if fx_hook:
 		fx_hook.queue_free(); fx_hook = null
 	if fx_rope:
@@ -836,26 +850,7 @@ func _build_gear() -> void:
 	_attach_gun(gun)
 	match movement.id:
 		&"jetpack":
-			var jp := Fx.model("ase/n2/jetpack01.glb")
-			var holder := Node3D.new()
-			holder.position = Vector3(0, 0.95, 0.28)
-			if jp:
-				Fx.fit(jp, 0.55)
-				holder.add_child(jp)
-			else:
-				holder.add_child(Fx.box(Vector3(0.3, 0.5, 0.2), Color(0.6, 0.6, 0.65)))
-			gear.add_child(holder)
-			fx_jet = Node3D.new()
-			fx_jet.position = Vector3(0, 0.55, 0.28)
-			var fl := Fx.model("ase/n1/fire.glb")
-			if fl:
-				Fx.fit(fl, 0.6)
-				fx_jet.add_child(fl)
-			else:
-				var cone := CylinderMesh.new(); cone.top_radius = 0.12; cone.bottom_radius = 0.0; cone.height = 0.5
-				fx_jet.add_child(Fx.mesh(cone, Color(1.0, 0.6, 0.1, 0.9), Vector3(0, -0.15, 0)))
-			fx_jet.visible = false
-			gear.add_child(fx_jet)
+			_build_jetpack()
 		&"goof_boots":
 			fx_boots = Node3D.new()
 			gear.add_child(fx_boots)
@@ -917,6 +912,51 @@ func _build_gear() -> void:
 	fx_drone.visible = false
 	gear.add_child(fx_drone)
 
+## Backpack (jetpack.glb, Granny model in raw units) bolted to the spine bone; flames at its two nozzles while thrusting.
+func _build_jetpack() -> void:
+	var sk: Skeleton3D = null
+	if model:
+		var l := model.find_children("*", "Skeleton3D", true, false)
+		if l.size() > 0:
+			sk = l[0] as Skeleton3D
+	var jp := Assets.try_scene("jetpack.glb") as Node3D
+	if sk == null or sk.find_bone("Bip01 Spine") < 0 or jp == null:
+		# art missing: old floating box fallback
+		var holder := Node3D.new()
+		holder.position = Vector3(0, 0.95, 0.28)
+		holder.add_child(Fx.box(Vector3(0.3, 0.5, 0.2), Color(0.6, 0.6, 0.65)))
+		gear.add_child(holder)
+		fx_jet = Node3D.new()
+		fx_jet.position = Vector3(0, 0.55, 0.28)
+		fx_jet.add_child(Fx.sphere(0.12, Color(1.0, 0.6, 0.1, 0.9)))
+		fx_jet.visible = false
+		gear.add_child(fx_jet)
+		return
+	jp_attach = BoneAttachment3D.new()
+	jp_attach.bone_name = "Bip01 Spine"
+	sk.add_child(jp_attach)
+	var holder2 := Node3D.new()
+	holder2.transform = Balance.JETPACK_XF
+	holder2.add_child(jp)
+	jp_attach.add_child(holder2)
+	jp_attach.set_meta("jp", true)
+	# flames: bottom corners of the pack (raw units, in the holder's frame)
+	fx_jet = Node3D.new()
+	var bb := Fx.aabb_of(jp)
+	for sy in [0.2, 0.8]:
+		var nozzle := Node3D.new()
+		nozzle.position = Vector3(bb.position.x, bb.position.y + bb.size.y * sy, bb.position.z + bb.size.z * 0.5)   # exhaust end = jp -x
+		var fl := Fx.model("ase/n1/fire.glb")
+		if fl:
+			Fx.fit(fl, 0.7 / maxf(base_scale, 0.0001))
+			fl.rotation.y = PI / 2.0   # point the flame along the pack's -x (down)
+			nozzle.add_child(fl)
+		else:
+			nozzle.add_child(Fx.sphere(0.1 / maxf(base_scale, 0.0001), Color(1.0, 0.6, 0.1, 0.9)))
+		fx_jet.add_child(nozzle)
+	fx_jet.visible = false
+	holder2.add_child(fx_jet)
+
 ## Parent the held-weapon placeholder to the right-hand bone (falls back to a fixed spot on the gear node).
 func _attach_gun(gun: Node3D) -> void:
 	var sk: Skeleton3D = null
@@ -935,7 +975,7 @@ func _attach_gun(gun: Node3D) -> void:
 		var ba := BoneAttachment3D.new()
 		ba.bone_name = bone
 		sk.add_child(ba)
-		gun.scale = Vector3.ONE / maxf(base_scale, 0.0001)   # bone space is in raw model units
+		gun.scale = Vector3.ONE * 0.5 / maxf(base_scale, 0.0001)   # bone space is in raw model units; half-size so it reads as a held gun
 		gun.position = Vector3(0, 0, 0)
 		ba.add_child(gun)
 		gun.set_meta("attach", ba)

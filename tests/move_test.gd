@@ -339,7 +339,7 @@ func run_real_curb() -> void:
 
 ## --cal: print the foot-lift table measured on the real Player model (paste into scripts/foot_table.gd)
 func calibrate() -> void:
-	for cfg in [[Config.TEAM_JIMMY, "jimmy.glb", ["jimmyidle", "jimmywalk", "jimmyfullrun", "jimmyscooter", "jimmyscooterstop"]], [Config.TEAM_NEGATRON, "nummey_villain.glb", ["nummeystop", "nummeywalk", "nummeyrun"]]]:
+	for cfg in [[Config.TEAM_JIMMY, "jimmy.glb", ["jimmyidle", "jimmywalk", "jimmyfullrun", "jimmyscooter", "jimmyscooterstop", "jimmyjump", "jimmyfall", "jimmyfly"]], [Config.TEAM_NEGATRON, "nummey_villain.glb", ["nummeystop", "nummeywalk", "nummeyrun", "nummeyfly", "numflyair"]]]:
 		await spawn(cfg[0], Vector3(-3, 0.3, 120))
 		player.set_physics_process(false)
 		var sk: Skeleton3D = player.model.find_children("*", "Skeleton3D", true, false)[0]
@@ -354,7 +354,10 @@ func calibrate() -> void:
 				player.anim.advance(a.length / 41.0)
 				var xf := sk.global_transform
 				ys.append(xf.origin.y + FootSkin.lowest(sk, pts) * xf.basis.get_scale().y - player.global_position.y)
+			var raw := ys.duplicate()
 			ys.sort()
+			if "--series" in OS.get_cmdline_user_args():
+				print("SERIES ", c, " ", raw.map(func(v): return snappedf(-v, 0.001)))
 			print("CAL %s lift=%.4f (min %.4f median %.4f)" % [c, -ys[3], -ys[0], -ys[20]])
 	get_tree().quit()
 

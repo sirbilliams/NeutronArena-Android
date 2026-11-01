@@ -1,23 +1,19 @@
 extends Node
+class StubWorld extends Node:
+	var match_over := false
 func _ready() -> void:
-	var m := Assets.load_scene("jimmy.glb")
-	add_child(m)
-	var ap := m.find_children("*", "AnimationPlayer", true, false)[0] as AnimationPlayer
-	var sk := m.find_children("*", "Skeleton3D", true, false)[0] as Skeleton3D
-	var b := sk.find_bone("Bip01 R Toe0")
-	for an in ["jimmyfullrun", "jimmywalk"]:
-		ap.get_animation(an).loop_mode = Animation.LOOP_LINEAR
-		ap.play(an, 0.0)
-		var out := []
-		for i in 40:
-			ap.advance(0.0333)
-			out.append(snappedf(sk.get_bone_global_pose(b).origin.y * Config.WORLD_SCALE * 100, 0.1))
-		print(an, " toeY ", out)
-		var a := ap.get_animation(an)
-		var s := []
-		for i in 14:
-			var t := a.length * i / 14.0
-			ap.seek(t, true)
-			s.append(snappedf(sk.get_bone_global_pose(b).origin.y * Config.WORLD_SCALE * 100, 0.1))
-		print(an, " seek ", s)
+	Config.test_mode = true
+	for team in [0, 1]:
+		var p := Player.new(); p.peer_id = 99; p.team = team; p.world = StubWorld.new()
+		var lo := Loadout.default_loadout(); lo["movement"] = &"jetpack"; p.loadout = lo
+		add_child(p)
+		p.model_yaw = -PI / 2.0
+		await get_tree().create_timer(0.5).timeout
+		var b := p.jp_attach.global_transform
+		var sk := p.jp_attach.get_parent() as Skeleton3D
+		print("team ", team, " attach basis x=", b.basis.x.normalized(), " y=", b.basis.y.normalized(), " z=", b.basis.z.normalized(), " origin=", b.origin, " body=", p.global_position)
+		var bi := sk.find_bone("Bip01 Spine")
+		print("  spine pose origin(skel) ", sk.get_bone_global_pose(bi).origin, " neck ", sk.get_bone_global_pose(sk.find_bone("Bip01 Neck")).origin, " pelvis ", sk.get_bone_global_pose(sk.find_bone("Bip01 Pelvis")).origin)
+		var bb := Fx.aabb_of(p.jp_attach.get_child(0).get_child(0) as Node3D)
+		print("  jp aabb ", bb)
 	get_tree().quit()

@@ -96,9 +96,11 @@ int progress_cb(void *user, int stage, long long done, long long total)
 
 struct GrnJob { const char *out; const char *model; std::vector<const char *> anims; };
 const GrnJob GRN_JOBS[] = {
-	{ "jimmy.glb", "jimmybase.grn", { "jimmyfullrun.grn", "jimmyidle.grn", "jimmywalk.grn", "jimmyscooter.grn", "jimmyscooterstop.grn" } },
+	{ "jimmy.glb", "jimmybase.grn", { "jimmyfullrun.grn", "jimmyidle.grn", "jimmywalk.grn", "jimmyscooter.grn", "jimmyscooterstop.grn",
+															  "jimmyjump.grn", "jimmyfall.grn", "jimmyfly.grn", "jimmyjumpgun.grn" } },
 	{ "nummey.glb", "nummeybase.grn", { "nummeywalk.grn", "nummeyrun.grn", "nummeystop.grn", "nummeytalk.grn" } },
-	{ "nummey_villain.glb", "nummeybase.grn", { "nummeylaugh.grn", "nummeydoom.grn", "nummeypushbuttons.grn", "nummeyflipsinair.grn" } },
+	{ "nummey_villain.glb", "nummeybase.grn", { "nummeylaugh.grn", "nummeydoom.grn", "nummeypushbuttons.grn", "nummeyflipsinair.grn", "nummeyfly.grn", "numflyair.grn" } },
+	{ "jetpack.glb", "jetpack.grn", {} },   // backpack model (Granny); attached to the spine while the jetpack is equipped
 	{ "nummey_scooter.glb", "nummeyscooterbase.grn", { "nummeyscooter.grn", "nummeyscootertalk.grn" } },
 };
 struct AseJob { int game; const char *stem; const char *tex; const char *uv_from; bool loop, dbl, unlit; };
@@ -213,7 +215,7 @@ Dictionary NaImporter::convert_all(const std::string &g2, const std::string &g1,
 	auto fail = [&](const std::string &m) { res["error"] = String(m.c_str()); return res; };
 	auto cleanup = [&]() { if (own) { rmtree(g2); rmtree(g1); rmtree(cache + "/cab"); } };
 	std::vector<std::string> made;
-	size_t total = 4 + 3 + 1 + (have_n1 ? 4 : 0) + 3, done = 0;
+	size_t total = 5 + 3 + 1 + (have_n1 ? 4 : 0) + 3, done = 0;
 	double cspan = 1.0 - cbase;
 	auto step = [&](const std::string &what) { set_progress(String("Converting ") + String(what.c_str()), 0, cbase + cspan * (double)done / (double)total, 0); };
 	std::string dll = find_ci(g2, "granny.dll");
