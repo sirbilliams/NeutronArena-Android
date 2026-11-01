@@ -88,3 +88,19 @@ static func bottom(n: Node3D) -> float:
 			cur = cur.get_parent()
 		lo = minf(lo, (xf * m.get_aabb()).position.y)
 	return 0.0 if lo > 1e8 else lo
+
+## merged AABB of all meshes under n, in n's own frame
+static func aabb_of(n: Node3D) -> AABB:
+	var box := AABB()
+	var first := true
+	for node in n.find_children("*", "MeshInstance3D", true, false):
+		var m := node as MeshInstance3D
+		var xf := Transform3D.IDENTITY
+		var cur: Node = m
+		while cur != n and cur != null:
+			xf = (cur as Node3D).transform * xf
+			cur = cur.get_parent()
+		var bb := xf * m.get_aabb()
+		box = bb if first else box.merge(bb)
+		first = false
+	return box

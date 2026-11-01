@@ -39,3 +39,5 @@ const CLASSES := {
 const DEFAULT_CLASS := &"inventor"
 const SLOTS := [&"primary", &"gadget", &"movement", &"ultimate"]
 const SPRINT_ALL := 1.0
+## jetpack.glb placement in the spine bone's space (raw model units); tuned from shots (tools/shots_move.gd)
+const JETPACK_XF := Transform3D(Basis(Vector3(1, 0, 0), Vector3(0, 0, -1), Vector3(0, 1, 0)), Vector3(-13.7, 12.0, 1.5))   # jp x (rocket axis, tip +x) -> bone X (up along the spine), jp z -> bone Y (back)
