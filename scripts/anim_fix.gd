@@ -7,11 +7,122 @@ extends RefCounted
 ##    keys are turned back by 180 deg about the vertical axis, so Negatron no longer runs "backwards" (face towards the camera).
 const FLIP_Y := Quaternion(0.0, 1.0, 0.0, 0.0)
 const FLIP_CLIPS := ["nummeyrun"]
+static var turned: Array[String] = []   # clips _face_forward turned around (shown on the scoreboard for device checks)
 
 static func fix_player(ap: AnimationPlayer) -> void:
 	for n in ap.get_animation_list():
 		fix(ap.get_animation(n), n)
+	_face_forward(ap)
 	_union_tracks(ap)
+
+## Data-driven facing check (the Thor showed Jimmy running face-first while the desktop build was fine, so a hard-coded clip list is
+## not enough): every clip is evaluated from its own keys at mid-length, forward = (L thigh - R thigh) x up in the model root frame;
+## the player rig expects +X (Player.MODEL_YAW). A clip facing -X gets its top animated bone turned 180 deg about the model's up axis.
+static func _face_forward(ap: AnimationPlayer) -> void:
+	var root := ap.get_node_or_null(ap.root_node) as Node3D
+	if root == null:
+		return
+	var sk := _find_skeleton(root)
+	if sk == null or sk.find_bone("Bip01 L Thigh") < 0 or sk.find_bone("Bip01 R Thigh") < 0:
+		return
+	var sk_xf := Transform3D.IDENTITY   # skeleton -> model root, from local transforms (the model may not be in the tree yet)
+	var n: Node = sk
+	while n != root and n != null:
+		if n is Node3D:
+			sk_xf = (n as Node3D).transform * sk_xf
+		n = n.get_parent()
+	for clip in ap.get_animation_list():
+		var a := ap.get_animation(clip)
+		if a.has_meta("facing_done"):
+			continue
+		a.set_meta("facing_done", true)
+		var t := a.length * 0.5
+		var l := sk_xf * _bone_global(sk, a, sk.find_bone("Bip01 L Thigh"), t).origin
+		var r := sk_xf * _bone_global(sk, a, sk.find_bone("Bip01 R Thigh"), t).origin
+		var fwd := (l - r).cross(Vector3.UP)
+		fwd.y = 0.0
+		if fwd.length() < 1e-4:
+			continue
+		fwd = fwd.normalized()
+		if fwd.x > -0.5:
+			continue
+		var top := _top_animated_bone(sk, a)
+		if top < 0:
+			continue
+		var parent_rest := Transform3D.IDENTITY   # the top animated bone's parents sit at rest in this clip
+		var p := sk.get_bone_parent(top)
+		if p >= 0:
+			parent_rest = sk.get_bone_global_rest(p)
+		var up_sk := (sk_xf.basis.inverse() * Vector3.UP).normalized()
+		var conj := (parent_rest.basis.orthonormalized().inverse() * Basis(up_sk, PI) * parent_rest.basis.orthonormalized()).get_rotation_quaternion()
+		var bname := sk.get_bone_name(top)
+		for ti in a.get_track_count():
+			var path := a.track_get_path(ti)
+			if path.get_subname_count() == 0 or path.get_concatenated_subnames() != bname:
+				continue
+			match a.track_get_type(ti):
+				Animation.TYPE_ROTATION_3D:
+					for k in a.track_get_key_count(ti):
+						a.track_set_key_value(ti, k, conj * (a.track_get_key_value(ti, k) as Quaternion))
+				Animation.TYPE_POSITION_3D:
+					for k in a.track_get_key_count(ti):
+						a.track_set_key_value(ti, k, conj * (a.track_get_key_value(ti, k) as Vector3))
+		if not turned.has(clip):
+			turned.append(clip)
+		print("AnimFix: %s faced %s, turned %s by 180 deg" % [clip, fwd.snapped(Vector3.ONE * 0.01), bname])
+
+static func _find_skeleton(n: Node) -> Skeleton3D:
+	if n is Skeleton3D:
+		return n
+	for c in n.get_children():
+		var s := _find_skeleton(c)
+		if s:
+			return s
+	return null
+
+## Bone pose in skeleton space at time t from this clip's keys (rest pose for bones the clip doesn't key).
+static func _bone_global(sk: Skeleton3D, a: Animation, bi: int, t: float) -> Transform3D:
+	var xf := Transform3D.IDENTITY
+	while bi >= 0:
+		var rest := sk.get_bone_rest(bi)
+		var pos := rest.origin
+		var rot := rest.basis.get_rotation_quaternion()
+		var scl := rest.basis.get_scale()
+		var bname := sk.get_bone_name(bi)
+		for ti in a.get_track_count():
+			var path := a.track_get_path(ti)
+			if path.get_subname_count() == 0 or path.get_concatenated_subnames() != bname or a.track_get_key_count(ti) == 0:
+				continue
+			match a.track_get_type(ti):
+				Animation.TYPE_POSITION_3D: pos = a.position_track_interpolate(ti, t)
+				Animation.TYPE_ROTATION_3D: rot = a.rotation_track_interpolate(ti, t)
+				Animation.TYPE_SCALE_3D: scl = a.scale_track_interpolate(ti, t)
+		xf = Transform3D(Basis(rot).scaled(scl), pos) * xf
+		bi = sk.get_bone_parent(bi)
+	return xf
+
+## The bone with rotation keys closest to the skeleton root.
+static func _top_animated_bone(sk: Skeleton3D, a: Animation) -> int:
+	var best := -1
+	var best_depth := 1 << 30
+	for ti in a.get_track_count():
+		if a.track_get_type(ti) != Animation.TYPE_ROTATION_3D:
+			continue
+		var path := a.track_get_path(ti)
+		if path.get_subname_count() == 0:
+			continue
+		var bi := sk.find_bone(path.get_concatenated_subnames())
+		if bi < 0:
+			continue
+		var d := 0
+		var q := bi
+		while sk.get_bone_parent(q) >= 0:
+			q = sk.get_bone_parent(q)
+			d += 1
+		if d < best_depth:
+			best_depth = d
+			best = bi
+	return best
 
 ## Every clip keys the union of all bone tracks (missing ones = one rest-pose key), so a plain (non-deterministic) crossfade never leaves
 ## a bone at the previous clip's pose, and no blend pulls bones through the rest pose (AnimationPlayer.deterministic did, see Player).
