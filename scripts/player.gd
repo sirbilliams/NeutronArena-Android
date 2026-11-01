@@ -5,7 +5,7 @@ const RUN_SPEED := 6.0
 const JUMP_SPEED := 6.5
 const GRAVITY := 20.0
 const MODEL_HEIGHT := 1.4
-const MODEL_YAW := PI          # models face +Z; Godot forward is -Z (calibrated in shots)
+const MODEL_YAW := PI / 2.0     # glb characters actually face +X natively (shots: at PI they faced -X, 90 deg off the movement dir); PI/2 makes them face Godot forward (-Z)
 const SYNC_HZ := 20.0
 const MOUSE_SENS := 0.0025
 const STICK_SENS := 2.8
@@ -45,6 +45,9 @@ var fx_shield: Node3D
 var fx_ship: Node3D
 var scooter_model: Node3D   # Negatron riding his own scooter (swapped in during the ultimate)
 var scooter_anim: AnimationPlayer
+var scooter_off := 0.0     # raw units: lifts the scooter model so its lowest point (wheels) is on the floor
+var fx_gun: Node3D
+var fx_boots: Node3D
 var fx_drone: Node3D
 var fx_mark: Label3D
 var fx_hook: Node3D
@@ -131,6 +134,7 @@ func _build_model() -> void:
 		if scooter_model:
 			scooter_model.scale = Vector3.ONE * s
 			scooter_model.visible = false
+			scooter_off = -Fx.bottom(scooter_model)
 			add_child(scooter_model)
 			scooter_anim = scooter_model.get_node_or_null("AnimationPlayer") as AnimationPlayer
 			if scooter_anim and scooter_anim.has_animation("nummeyscooter"):
@@ -439,6 +443,7 @@ func _animate() -> void:
 			scooter_model.visible = alive and neg_sc
 			scooter_model.rotation.y = model_yaw + MODEL_YAW
 			scooter_model.scale = Vector3.ONE * base_scale * cur_shrink
+			scooter_model.position.y = scooter_off * base_scale * cur_shrink
 			if neg_sc and scooter_anim and scooter_anim.current_animation != "nummeyscooter":
 				scooter_anim.play("nummeyscooter")
 		model.scale = Vector3.ONE * base_scale * cur_shrink
@@ -475,6 +480,11 @@ func _update_fx() -> void:
 		var m := fx_shield as MeshInstance3D
 		if m and m.material_override:
 			(m.material_override as StandardMaterial3D).albedo_color = Color(0.4, 1.0, 0.6, 0.28) if (fl & 4) != 0 and not has_status("shield") else Color(0.3, 0.7, 1.0, 0.3)
+	var riding := ult_is(&"goddard_scooter")
+	if fx_gun:
+		fx_gun.visible = not riding
+	if fx_boots:
+		fx_boots.visible = not riding
 	if fx_ship:
 		fx_ship.visible = alive and (ult_is(&"rocket_ship") or (ult_is(&"goddard_scooter") and (team == Config.TEAM_JIMMY or scooter_model == null)))
 	if fx_drone:
@@ -541,13 +551,14 @@ func _build_gear() -> void:
 		fx_rope.queue_free(); fx_rope = null
 	gear = Node3D.new()
 	add_child(gear)
-	fx_jet = null; fx_shield = null; fx_ship = null; fx_drone = null
+	fx_jet = null; fx_shield = null; fx_ship = null; fx_drone = null; fx_boots = null
 	# held weapon placeholder (Neutron 2 Granny weapon models are not exported yet)
 	var gun := Node3D.new()
-	gun.position = Vector3(0.28, 0.95, -0.35)
+	fx_gun = gun
+	gun.position = Vector3(0.18, 0.5, -0.25)
 	match weapon.id:
 		&"burp_gun":
-			gun.add_child(Fx.box(Vector3(0.18, 0.18, 0.4), Color(1.0, 0.55, 0.1)))
+			gun.add_child(Fx.box(Vector3(0.1, 0.12, 0.35), Color(1.0, 0.55, 0.1)))
 		&"water_gun":
 			gun.add_child(Fx.box(Vector3(0.08, 0.1, 0.55), Color(0.2, 0.85, 0.35)))
 		&"mega_burp":
@@ -580,16 +591,19 @@ func _build_gear() -> void:
 			fx_jet.visible = false
 			gear.add_child(fx_jet)
 		&"goof_boots":
+			fx_boots = Node3D.new()
+			gear.add_child(fx_boots)
 			for sx in [-0.14, 0.14]:
 				var b := Fx.model("ase/n2/goofbootfly.glb")
 				var h := Node3D.new()
-				h.position = Vector3(sx, 0.1, 0)
+				h.position = Vector3(sx, 0.0, 0)
 				if b:
 					Fx.fit(b, 0.28)
+					b.position.y = -Fx.bottom(b) * b.scale.y   # sole on the floor
 					h.add_child(b)
 				else:
 					h.add_child(Fx.box(Vector3(0.14, 0.18, 0.28), Color(0.9, 0.8, 0.2)))
-				gear.add_child(h)
+				fx_boots.add_child(h)
 		&"grapple":
 			fx_hook = Fx.model("ase/n1/hook.glb")
 			if fx_hook:
@@ -635,6 +649,12 @@ func _build_gear() -> void:
 		if sc:
 			sc.scale = Vector3.ONE * Config.WORLD_SCALE
 			sc.position = Vector3(0, 0, -8.0 * Config.WORLD_SCALE)
+			# godscooter.ASE ships without UVs in every game dir (key-set-only anim file), so the texture cannot map: use the ASE material diffuse colour
+			var gm := StandardMaterial3D.new()
+			gm.albedo_color = Color(0.545, 0.192, 0.518)
+			gm.roughness = 0.6
+			for mi in sc.find_children("*", "MeshInstance3D", true, false):
+				(mi as MeshInstance3D).material_override = gm
 			fx_ship.add_child(sc)
 		else:
 			fx_ship.add_child(Fx.box(Vector3(0.4, 0.2, 1.0), Color(0.45, 0.55, 0.25)))

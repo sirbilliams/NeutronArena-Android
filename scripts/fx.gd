@@ -75,3 +75,16 @@ static func fit(n: Node3D, size: float) -> void:
 	var k := size / big
 	n.scale = Vector3.ONE * k
 	n.position = -box.get_center() * k
+
+## Lowest point (min y, in n's own local units) of all meshes under n. Skinned meshes use their rest AABB.
+static func bottom(n: Node3D) -> float:
+	var lo := 1e9
+	for node in n.find_children("*", "MeshInstance3D", true, false):
+		var m := node as MeshInstance3D
+		var xf := Transform3D.IDENTITY
+		var cur: Node = m
+		while cur != n and cur != null:
+			xf = (cur as Node3D).transform * xf
+			cur = cur.get_parent()
+		lo = minf(lo, (xf * m.get_aabb()).position.y)
+	return 0.0 if lo > 1e8 else lo
