@@ -1137,7 +1137,7 @@ func _build_jetpack() -> void:
 		nozzle.position = Vector3(bb.position.x, bb.position.y + bb.size.y * sy, bb.position.z + bb.size.z * 0.5)   # exhaust end = jp -x
 		var fl := Fx.model("ase/n1/fire.glb")
 		if fl:
-			Fx.fit(fl, 1.15 / maxf(base_scale, 0.0001))
+			Fx.fit(fl, 1.0 / maxf(base_scale, 0.0001))
 			fl.rotation.y = PI / 2.0   # point the flame along the pack's -x (down)
 			nozzle.add_child(fl)
 		else:

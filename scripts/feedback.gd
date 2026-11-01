@@ -148,6 +148,9 @@ func _name_label(p: Player, id: int) -> Label:
 	return l
 
 func _process(dt: float) -> void:
+	size = get_viewport_rect().size   # under a CanvasLayer the anchors do not resolve to the viewport
+	feed.position = Vector2(size.x - feed.size.x - 12.0, 44.0)
+	vignette.size = size
 	marker_t = maxf(0.0, marker_t - dt)
 	queue_redraw()
 	for i in inds.size():

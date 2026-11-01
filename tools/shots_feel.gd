@@ -94,6 +94,20 @@ func _ready() -> void:
 	cam = Camera3D.new(); cam.fov = 35; cam.far = 500; add_child(cam); cam.current = true
 	await get_tree().physics_frame
 	await get_tree().physics_frame
+	if OS.get_cmdline_user_args().has("--jet"):
+		var xa := base.x
+		var jj := mk(0, Vector3(xa, gy(xa) + 2.4, base.z), false, &"jetpack")
+		jj.model_yaw = -PI / 2.0; jj.t_yaw = -PI / 2.0
+		jj.t_grounded = false; jj.t_flags = 1
+		await get_tree().create_timer(1.0).timeout
+		for i in 3:
+			await get_tree().create_timer(0.07).timeout
+			look(Vector3(xa, 2.2, base.z), 2.6, 2.2, true)
+			await shot("jetpack_flames_behind_%d" % i)
+		look(Vector3(xa, 2.2, base.z), 2.6, 2.2, false)
+		await shot("jetpack_flames_side")
+		get_tree().quit()
+		return
 	var X := Vector3(1, 0, 0)
 	var Z := Vector3(0, 0, 1)
 	for back in [false, true]:
