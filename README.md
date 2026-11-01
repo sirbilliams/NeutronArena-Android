@@ -7,9 +7,12 @@ Assets folder (default `~/Projects/arena-assets`, change in the menu or `NEGATRO
 `levels/level5c.glb`, `jimmy.glb`, `nummey_villain.glb`, `nummey.glb`.
 
 Run: `godot --path . ` then Host / Join (IP). CLI: `-- --host`, `-- --join=IP`, `-- --port=N`.
-Controls: WASD + mouse + LMB, or left stick / right stick / RT (R1), A = jump, Esc frees the mouse.
+Controls: WASD + mouse + LMB, or left stick / right stick / RT, A = jump, Esc frees the mouse.
+Loadout (4 slots, all numbers in scripts/balance.gd): gadget Q / LB, movement Shift / RB (hold; also A-hold = jetpack, A in air = double jump/glide),
+ultimate F / LB+RB (charges from damage dealt), loadout menu L / Back (also opens on first spawn and while dead; applies on respawn).
 Test: `tests/run_net_test.sh` (headless server + client + observer on localhost).
 Screenshots: `tools/vrun.sh res://tools/shots.tscn` (nested virtual KWin, needs a GPU).
+Loadout test: `tests/run_loadout_test.sh` (host + client + observer over localhost). Loadout shots: `tools/vrun.sh res://tools/shots_loadout.tscn`.
 
 ## Map (5v5)
 `LAYOUT` in `scripts/arena_level.gd`: "museum" (default) = Candy Bar (Jimmy) to museum plaza (Negatron), ~392 m apart, one fenced
