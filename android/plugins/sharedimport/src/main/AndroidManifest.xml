@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- signature permissions declared by the sirbilliams ports (GameFilesProvider): each is granted only when this app is
+         signed with the same key as that port (the two ports use different keys) -->
+    <uses-permission android:name="com.sirbilliams.negatron.permission.READ_GAME_FILES" />
+    <uses-permission android:name="com.sirbilliams.neutron1.permission.READ_GAME_FILES" />
+
+    <!-- Android 11+ package visibility: the two port apps -->
+    <queries>
+        <package android:name="com.sirbilliams.negatron" />
+        <package android:name="com.sirbilliams.neutron1" />
+    </queries>
+
+    <application>
+        <meta-data android:name="org.godotengine.plugin.v2.SharedImport"
+            android:value="com.negatronarena.sharedimport.SharedImportPlugin" />
+    </application>
+</manifest>

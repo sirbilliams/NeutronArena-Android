@@ -57,3 +57,14 @@ Game files on the Thor: copy your exported files to `/sdcard/NegatronArena/` kee
 `adb push ~/Projects/arena-assets/levels ~/Projects/arena-assets/*.glb /sdcard/NegatronArena/` (push into the `levels` dir by hand if adb flattens it).
 On first start the app asks for "All files access"; if the assets are missing it shows the folder to copy to and a re-check button.
 Also searched: `/sdcard/Android/data/com.negatronarena.game/files/NegatronArena` (needs no permission when pushed with adb).
+
+## Import from the installed port apps (Android)
+If *Jimmy Neutron vs Jimmy Negatron* (`com.sirbilliams.negatron`) and/or *Boy Genius* (`com.sirbilliams.neutron1`) are installed with their
+game set up, the setup screen offers "Use files from ... (installed)" first; the ISO buttons stay as the alternative (mixing is fine).
+The ports share their game folder read-only through `GameFilesProvider` (signature|knownSigner permission); Arena's Android plugin
+`SharedImport` (`android/plugins/sharedimport`, a Godot v2 plugin, needs the gradle export) copies only the ~40 files the converters need.
+- One-time: `tools/setup_android_build.sh` (installs the Godot gradle template), `tools/build_android_plugin.sh` (AAR).
+- Android only grants access to the **release** build signed with Arena's own key (`tools/export_release.sh`, key in
+  `~/.config/negatron-arena-signing`, never committed); its certificate digest is listed in the ports (`known_game_file_readers`).
+  Debug builds are denied: the UI then says to use the ISO. Needs Android 12+ (older Android: ISO only).
+- Desktop: "…or choose an extracted game folder" converts from an already extracted game (`NaImporter.import_from_dirs`).
