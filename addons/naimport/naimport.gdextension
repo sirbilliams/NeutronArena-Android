@@ -1,0 +1,10 @@
+[configuration]
+entry_symbol = "naimport_init"
+compatibility_minimum = "4.5"
+
+[libraries]
+linux.editor.x86_64 = "res://addons/naimport/bin/libnaimport.linux.template_release.x86_64.so"
+linux.debug.x86_64 = "res://addons/naimport/bin/libnaimport.linux.template_release.x86_64.so"
+linux.release.x86_64 = "res://addons/naimport/bin/libnaimport.linux.template_release.x86_64.so"
+android.debug.arm64 = "res://addons/naimport/bin/libnaimport.android.template_release.arm64.so"
+android.release.arm64 = "res://addons/naimport/bin/libnaimport.android.template_release.arm64.so"

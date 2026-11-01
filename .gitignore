@@ -7,3 +7,7 @@
 *.gdmp
 *.odmp
 .import/
+native/godot-cpp/
+native/build-*/
+addons/naimport/bin/
+*.iso
