@@ -6,6 +6,11 @@ const JUMP_SPEED := 6.5
 const GRAVITY := 20.0
 const MODEL_HEIGHT := 1.4
 const MODEL_YAW := PI / 2.0     # glb characters actually face +X natively (shots: at PI they faced -X, 90 deg off the movement dir); PI/2 makes them face Godot forward (-Z)
+const PALM_JIM := Vector3(8.4, 4.0, -1.8)   # right-hand bone space (raw model units): centre of the hand mesh
+const PALM_NEG := Vector3(10.2, 3.3, -1.35)
+const BOOT_OFF := Vector3(4.0, 0.0, -4.0)   # goof boot centre in the foot bone's space (raw units)
+const BOOT_SIZE := 36.0
+const PLATE_OFF := Vector3(14.0, -7.0, 0.0)   # chest plate centre in the spine bone's space (raw units)
 const SYNC_HZ := 20.0
 const MOUSE_SENS := 0.0025
 const STICK_SENS := 2.8
@@ -67,8 +72,12 @@ var scooter_model: Node3D   # Negatron riding his own scooter (swapped in during
 var scooter_anim: AnimationPlayer
 var scooter_off := 0.0     # raw units: lifts the scooter model so its lowest point (wheels) is on the floor
 var fx_gun: Node3D
+var gun_ba: BoneAttachment3D
+var boot_ba: Array[BoneAttachment3D] = []
+var palm: Node3D
 var jim_scooter: Node3D     # Goddard's scooter (scooter.glb, same frame as Jimmy's scooter anims)
 var fx_boots: Node3D
+var fx_sprint: Node3D
 var fx_drone: Node3D
 var fx_mark: Label3D
 var fx_hook: Node3D
@@ -213,6 +222,7 @@ func _build_model() -> void:
 					lib.add_animation(n, oap.get_animation(n).duplicate())
 		other.free()
 		anim_idle = "nummeystop"; anim_run = "nummeyrun"; anim_walk = "nummeywalk"; anim_fall = ""; anim_jump = ""; anim_fly = "nummeyfly"   # numflyair is a tumble loop: not used; Negatron holds a run frame in the air
+	AnimFix.fix_player(anim)
 	anim.deterministic = true   # tracks a clip does not key blend back to the rest pose (jump/fly clips key extra bones)
 	for n in anim.get_animation_list():
 		anim.get_animation(n).loop_mode = Animation.LOOP_LINEAR
@@ -693,6 +703,7 @@ func _animate() -> void:
 		gear.scale = Vector3.ONE * cur_shrink
 		gear.visible = alive
 	_update_fx()
+	_update_gun()
 	if label:
 		label.visible = alive and not is_local
 	if team == Config.TEAM_JIMMY and jim_scooter != null and ult_is(&"goddard_scooter") and anim and anim.has_animation("jimmyscooter"):
@@ -753,10 +764,10 @@ func _update_fx() -> void:
 		if m and m.material_override:
 			(m.material_override as StandardMaterial3D).albedo_color = Color(0.4, 1.0, 0.6, 0.28) if (fl & 4) != 0 and not has_status("shield") else Color(0.3, 0.7, 1.0, 0.3)
 	var riding := ult_is(&"goddard_scooter")
-	if fx_gun:
-		fx_gun.visible = not riding
-	if fx_boots:
-		fx_boots.visible = not riding
+	for ba in boot_ba:
+		ba.visible = not riding
+	if fx_sprint:
+		fx_sprint.visible = alive and (fl & 16) != 0 and h_speed > 2.0 and not riding
 	if fx_ship:
 		fx_ship.visible = alive and (ult_is(&"rocket_ship") or (ult_is(&"goddard_scooter") and ((team == Config.TEAM_JIMMY and jim_scooter == null) or (team == Config.TEAM_NEGATRON and scooter_model == null))))
 	if fx_drone:
@@ -822,49 +833,40 @@ func _build_gear() -> void:
 		gear.queue_free()
 	if jp_attach:
 		jp_attach.queue_free(); jp_attach = null
+	for ba in boot_ba:
+		ba.queue_free()
+	boot_ba.clear()
 	if fx_hook:
 		fx_hook.queue_free(); fx_hook = null
 	if fx_rope:
 		fx_rope.queue_free(); fx_rope = null
 	gear = Node3D.new()
 	add_child(gear)
-	fx_jet = null; fx_shield = null; fx_ship = null; fx_drone = null; fx_boots = null
-	# held weapon placeholder (Neutron 2 Granny weapon models are not exported yet)
+	fx_jet = null; fx_shield = null; fx_ship = null; fx_drone = null; fx_boots = null; fx_sprint = null
+	# held weapon: procedural model (WeaponModel), posed at the right palm and aimed every frame by _update_gun()
 	if fx_gun:
-		if fx_gun.get_parent() is BoneAttachment3D:
-			fx_gun.get_parent().queue_free()
 		fx_gun.queue_free()
-	var gun := Node3D.new()
-	fx_gun = gun
-	match weapon.id:
-		&"burp_gun":
-			gun.add_child(Fx.box(Vector3(0.1, 0.1, 0.16), Color(1.0, 0.55, 0.1)))
-		&"water_gun":
-			gun.add_child(Fx.box(Vector3(0.08, 0.1, 0.55), Color(0.2, 0.85, 0.35)))
-		&"mega_burp":
-			gun.add_child(Fx.box(Vector3(0.3, 0.3, 0.6), Color(0.9, 0.2, 0.2)))
-		&"baseball":
-			gun.add_child(Fx.box(Vector3(0.2, 0.2, 0.55), Color(0.95, 0.95, 0.95)))
-		_:
-			gun.add_child(Fx.box(Vector3(0.12, 0.14, 0.4), Color(0.3, 0.8, 1.0)))
-	_attach_gun(gun)
+	if gun_ba:
+		gun_ba.queue_free(); gun_ba = null
+	fx_gun = WeaponModel.build(weapon.id)
+	fx_gun.top_level = true
+	add_child(fx_gun)
+	_attach_palm()
 	match movement.id:
 		&"jetpack":
 			_build_jetpack()
 		&"goof_boots":
-			fx_boots = Node3D.new()
-			gear.add_child(fx_boots)
-			for sx in [-0.14, 0.14]:
-				var b := Fx.model("ase/n2/goofbootfly.glb")
-				var h := Node3D.new()
-				h.position = Vector3(sx, 0.0, 0)
-				if b:
-					Fx.fit(b, 0.28)
-					b.position.y = -Fx.bottom(b) * b.scale.y   # sole on the floor
-					h.add_child(b)
-				else:
-					h.add_child(Fx.box(Vector3(0.14, 0.18, 0.28), Color(0.9, 0.8, 0.2)))
-				fx_boots.add_child(h)
+			_build_boots()
+		&"none":
+			_build_plating()
+		&"sprint":
+			fx_sprint = Node3D.new()
+			for i in 4:
+				var st := Fx.box(Vector3(0.025, 0.025, 0.9), Color(1, 1, 1, 0.5))
+				st.position = Vector3(-0.35 + 0.23 * i, 0.35 + 0.28 * (i % 3), 0.75)
+				fx_sprint.add_child(st)
+			fx_sprint.visible = false
+			gear.add_child(fx_sprint)
 		&"grapple":
 			fx_hook = Fx.model("ase/n1/hook.glb")
 			if fx_hook:
@@ -883,6 +885,7 @@ func _build_gear() -> void:
 		var holder2 := Node3D.new()
 		holder2.position.y = 0.75
 		Fx.fit(bub, 2.1)
+		Fx.translucent(bub, 0.3)
 		holder2.add_child(bub)
 		fx_shield = holder2
 	else:
@@ -908,11 +911,52 @@ func _build_gear() -> void:
 		fx_ship.add_child(Fx.box(Vector3(0.4, 0.2, 1.0), Color(0.45, 0.55, 0.25)))   # fallback when scooter.glb is missing
 	fx_ship.visible = false
 	gear.add_child(fx_ship)
-	fx_drone = Fx.sphere(0.18, Color(0.9, 0.9, 0.3))
+	fx_drone = WeaponModel.drone()
 	fx_drone.visible = false
 	gear.add_child(fx_drone)
 
 ## Backpack (jetpack.glb, Granny model in raw units) bolted to the spine bone; flames at its two nozzles while thrusting.
+## Heavy Plating: chest plate + shoulder pads on the gear node (rotates with the body; torso height ~0.85 m).
+func _build_plating() -> void:
+	var holder := Node3D.new()
+	holder.position = Vector3(0, 0.5, -0.02)
+	gear.add_child(holder)
+	var steel := Color(0.55, 0.58, 0.66)
+	WeaponModel.block(holder, Vector3(0, 0, -0.1), Vector3(0.28, 0.24, 0.06), steel, 0.7)
+	WeaponModel.block(holder, Vector3(0, 0, -0.135), Vector3(0.18, 0.14, 0.02), Color(0.85, 0.7, 0.2), 0.6)
+	WeaponModel.block(holder, Vector3(0, 0.02, 0.13), Vector3(0.28, 0.24, 0.05), steel, 0.7)
+	for sx in [-1.0, 1.0]:
+		WeaponModel.ball(holder, Vector3(0.18 * sx, 0.13, 0.0), 0.06, steel, 0.7)
+
+func _build_boots() -> void:
+	var sk: Skeleton3D = null
+	if model:
+		var l := model.find_children("*", "Skeleton3D", true, false)
+		if l.size() > 0:
+			sk = l[0] as Skeleton3D
+	fx_boots = Node3D.new()   # bookkeeping node (visibility is applied to the attachments)
+	gear.add_child(fx_boots)
+	if sk == null:
+		return
+	for side in ["L", "R"]:
+		var bn := "Bip01 %s Foot" % side
+		if sk.find_bone(bn) < 0:
+			continue
+		var ba := BoneAttachment3D.new()
+		ba.bone_name = bn
+		sk.add_child(ba)
+		boot_ba.append(ba)
+		var h := Node3D.new()
+		# foot bone: +X down the shin, -Z toward the toe; boot glb: +Y up, +Z forward
+		h.transform = Transform3D(Basis(Vector3(0, -1, 0), Vector3(-1, 0, 0), Vector3(0, 0, -1)), BOOT_OFF)
+		var b := Fx.model("ase/n2/goofbootfly.glb")
+		if b:
+			Fx.fit(b, BOOT_SIZE)
+			h.add_child(b)
+		else:
+			h.add_child(Fx.box(Vector3(10, 12, 24), Color(0.9, 0.8, 0.2)))
+		ba.add_child(h)
+
 func _build_jetpack() -> void:
 	var sk: Skeleton3D = null
 	if model:
@@ -957,28 +1001,32 @@ func _build_jetpack() -> void:
 	fx_jet.visible = false
 	holder2.add_child(fx_jet)
 
-## Parent the held-weapon placeholder to the right-hand bone (falls back to a fixed spot on the gear node).
-func _attach_gun(gun: Node3D) -> void:
+## Palm marker (centre of the right hand mesh, bone-local raw units measured with tools/handprobe.gd) on the right-hand bone.
+func _attach_palm() -> void:
 	var sk: Skeleton3D = null
 	if model:
 		var l := model.find_children("*", "Skeleton3D", true, false)
 		if l.size() > 0:
 			sk = l[0] as Skeleton3D
-	var bone := ""
-	if sk:
-		for i in sk.get_bone_count():
-			var n := sk.get_bone_name(i)
-			if n.to_lower().contains("r hand") and not n.to_lower().contains("finger"):
-				bone = n
-				break
-	if sk and bone != "":
-		var ba := BoneAttachment3D.new()
-		ba.bone_name = bone
-		sk.add_child(ba)
-		gun.scale = Vector3.ONE * 0.5 / maxf(base_scale, 0.0001)   # bone space is in raw model units; half-size so it reads as a held gun
-		gun.position = Vector3(0, 0, 0)
-		ba.add_child(gun)
-		gun.set_meta("attach", ba)
+	if sk == null or sk.find_bone("Bip01 R Hand") < 0:
 		return
-	gun.position = Vector3(0.18, 0.5, -0.25)
-	gear.add_child(gun)
+	gun_ba = BoneAttachment3D.new()
+	gun_ba.bone_name = "Bip01 R Hand"
+	sk.add_child(gun_ba)
+	palm = Node3D.new()
+	palm.position = PALM_NEG if team == Config.TEAM_NEGATRON else PALM_JIM
+	gun_ba.add_child(palm)
+
+## Keeps the held weapon in the palm with its barrel along the aim (body yaw, plus camera pitch for the local player).
+func _update_gun() -> void:
+	if fx_gun == null:
+		return
+	var show := alive and model != null and model.visible and palm != null
+	fx_gun.visible = show
+	if not show:
+		return
+	var pitch := 0.0
+	if is_local and cam_pivot:
+		pitch = cam_pitch * (1.0 if shoot_pose > 0.0 else 0.4)
+	var b := Basis.from_euler(Vector3(pitch, model_yaw, 0.0)).scaled(Vector3.ONE * cur_shrink)
+	fx_gun.global_transform = Transform3D(b, palm.global_position)

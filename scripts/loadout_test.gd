@@ -106,6 +106,27 @@ func _lo_server() -> void:
 	check(world.srv_has(cid, "phase"), "power phase active")
 	world.srv_hit(cid, 1, 50)
 	check(world.info[cid].hp == 100, "phase = invulnerable")
+	# --- laser trap: placed ahead of the host, damages an enemy who crosses it
+	_set_srv_loadout(1, _lo(&"bubble_gun", &"laser_trap", &"sprint", &"rocket_ship"))
+	world.info[cid].st.erase("phase")
+	_reset_victim(cid)
+	world.info[1].gadget_ready = 0.0
+	var n_traps := world.traps.size()
+	world._srv_gadget(1, me.global_position + Vector3(0, 1, 0), Vector3.FORWARD)
+	check(world.traps.size() == n_traps + 1, "laser trap placed")
+	var tr: Dictionary = world.traps[world.traps.size() - 1]
+	vic.global_position = (tr.a + tr.b) * 0.5 - Vector3(0, 0.6, 0)
+	await get_tree().create_timer(0.5).timeout
+	check(world.info[cid].hp == 100 - int(GadgetData.get_gadget(&"laser_trap").f("damage")), "laser trap damaged the enemy crossing it (hp %d)" % world.info[cid].hp)
+	check(world.traps.size() == n_traps, "laser trap consumed after the hit")
+	# --- drone marks enemies in range
+	_set_srv_loadout(1, _lo(&"bubble_gun", &"drone", &"sprint", &"rocket_ship"))
+	_reset_victim(cid)
+	world.info[1].gadget_ready = 0.0
+	vic.global_position = me.global_position + Vector3(6, 0, 0)
+	world._srv_gadget(1, me.global_position + Vector3(0, 1, 0), Vector3.FORWARD)
+	check(world.srv_has(1, "drone") and world.srv_has(cid, "marked"), "drone active and marked the enemy in range")
+	tp.call()
 	# --- ultimate: charges from damage, then activates
 	_set_srv_loadout(1, _lo(&"bubble_gun", &"energy_shield", &"sprint", &"rocket_ship"))
 	world.info[1].ult_charge = 0

@@ -656,10 +656,17 @@ func c_beam(_id: int, a: Vector3, b: Vector3) -> void:
 
 @rpc("authority", "call_local", "reliable")
 func c_trap(tid: int, _owner: int, team: int, a: Vector3, b: Vector3) -> void:
-	var mi := Fx.beam(0.05, Color(1.0, 0.15, 0.15, 0.9) if team == 1 else Color(0.2, 0.9, 1.0, 0.9))
-	traps_root.add_child(mi)
+	var col := Color(1.0, 0.15, 0.15, 0.9) if team == 1 else Color(0.2, 0.9, 1.0, 0.9)
+	var root := Node3D.new()
+	traps_root.add_child(root)
+	var mi := Fx.beam(0.05, col)
+	root.add_child(mi)
 	Fx.place_beam(mi, a, b)
-	trap_nodes[tid] = mi
+	for end in [a, b]:   # emitter posts (the wire sits 0.6 m above the floor)
+		var post := WeaponModel.pylon(0.6, Color(col.r, col.g, col.b))
+		root.add_child(post)
+		post.global_position = end - Vector3(0, 0.6, 0)
+	trap_nodes[tid] = root
 
 @rpc("authority", "call_local", "reliable")
 func c_trap_remove(tid: int) -> void:
