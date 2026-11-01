@@ -26,6 +26,8 @@ var traps_root: Node3D
 var traps := []            # server: {id, owner, team, a, b, ends}
 var trap_counter := 0
 var trap_nodes := {}       # all peers: id -> Node3D
+var bot_mgr: BotManager    # server only (null when bots are off)
+var bot_counter := 0
 
 func _ready() -> void:
 	name = "World"
@@ -49,6 +51,12 @@ func start_server() -> void:
 	await get_tree().physics_frame
 	await get_tree().physics_frame
 	ready_for_peers = true
+	bot_mgr = BotManager.new()
+	bot_mgr.name = "BotManager"
+	bot_mgr.world = self
+	bot_mgr.enabled = Config.bots_enabled
+	bot_mgr.difficulty = Config.bot_difficulty
+	add_child(bot_mgr)
 	_srv_peer_connected(1)
 	for id in multiplayer.get_peers():
 		_srv_peer_connected(id)
@@ -67,10 +75,10 @@ func _srv_peer_connected(id: int) -> void:
 	if Config.test_mode and not OS.get_cmdline_user_args().has("--manual_team"):
 		_srv_join(id, TEAM_AUTO)
 
-func _team_counts(skip := -1) -> Array:
+func _team_counts(skip := 0, humans_only := false) -> Array:
 	var counts := [0, 0]
 	for i in info:
-		if i != skip:
+		if i != skip and not (humans_only and i < 0):
 			counts[info[i].team] += 1
 	return counts
 
@@ -107,7 +115,7 @@ func _srv_team_request(id: int, choice: int) -> void:
 		await get_tree().physics_frame
 	if id != 1 and not multiplayer.get_peers().has(id):
 		return   # left while we waited: don't spawn a ghost
-	var r := resolve_team(choice, _team_counts(id))
+	var r := resolve_team(choice, _team_counts(id, true))   # bots do not hold slots: a human displaces one
 	if r.team < 0:
 		_team_msg(id, r.msg)
 		return
@@ -127,6 +135,8 @@ func _srv_team_request(id: int, choice: int) -> void:
 		_srv_join(id, r.team)
 
 func _team_msg(id: int, msg: String) -> void:
+	if id < 0:
+		return
 	if id == 1:
 		team_refused.emit(msg)
 	else:
@@ -142,11 +152,13 @@ func _new_info(team: int) -> Dictionary:
 func _srv_join(id: int, choice: int) -> void:
 	if info.has(id):
 		return
-	var r := resolve_team(choice, _team_counts())
+	var r := resolve_team(choice, _team_counts(0, id > 0))
 	if r.team < 0:
 		_team_msg(id, r.msg)
 		return
 	var team: int = r.team
+	if id > 0:
+		srv_make_room(team)
 	info[id] = _new_info(team)
 	var sp := _next_spawn(team)
 	# tell the new peer about everyone already here, then everyone about the new one
@@ -154,20 +166,62 @@ func _srv_join(id: int, choice: int) -> void:
 		if i != id:
 			var p: Player = players.get(i)
 			var tr := p.global_transform if p else Transform3D()
-			if id != 1:
+			if id > 0 and id != 1:
 				c_add_player.rpc_id(id, i, info[i].team, tr)
 	c_add_player.rpc(id, team, sp)
 	for i in info:
-		if i != id and id != 1:
+		if i != id and id > 1:
 			c_loadout.rpc_id(id, i, Loadout.to_wire(info[i].loadout), info[i].max_hp)
 	c_loadout.rpc(id, Loadout.to_wire(info[id].loadout), info[id].max_hp)
+	if id < 0:
+		_srv_bot_loadout(id)
+		return
 	for t in traps:
 		c_trap.rpc_id(id, t.id, t.owner, t.team, t.a, t.b)
 	c_scores.rpc_id(id, team_score, kills, deaths)
 
+# ---------------------------------------------------------------- bots (server)
+func srv_add_bot(team: int) -> int:
+	bot_counter += 1
+	var id := -bot_counter
+	_srv_join(id, team)
+	return id if info.has(id) else 0
+
+func srv_bot_ids(team := -1) -> Array:
+	var out := []
+	for i in info:
+		if i < 0 and (team < 0 or info[i].team == team):
+			out.append(i)
+	return out
+
+## A human is taking a slot on `team`: if it is full, a bot leaves.
+func srv_make_room(team: int) -> void:
+	if _team_counts()[team] >= TEAM_CAP:
+		var b := srv_bot_ids(team)
+		if not b.is_empty():
+			srv_remove_bot(b[0])
+
+func srv_remove_bot(id: int) -> void:
+	if not info.has(id):
+		return
+	info.erase(id)
+	kills.erase(id); deaths.erase(id)
+	if bot_mgr:
+		bot_mgr.forget(id)
+	c_remove_player.rpc(id)
+	c_scores.rpc(team_score, kills, deaths)
+
+func _srv_bot_loadout(id: int) -> void:
+	var classes: Array = Balance.CLASSES.keys()
+	var inf: Dictionary = info[id]
+	inf.pending = Loadout.from_class(classes[randi() % classes.size()])
+	inf.confirmed = true
+	_srv_apply_loadout(id, true)
+
 ## Server: move a joined player to the other team. Kills/deaths/score untouched; the player respawns fresh at the new side.
 func _srv_switch_team(id: int, team: int) -> void:
 	var inf: Dictionary = info[id]
+	srv_make_room(team)
 	inf.team = team
 	inf.st.clear(); inf.shield_hp = 0; inf.ram_cd.clear()
 	inf.hp = inf.max_hp
@@ -199,9 +253,9 @@ func _respawn_spawn(id: int) -> Transform3D:
 	return level.spawn_point(team, idx, zone)
 
 ## Called on the owner: ask the server to shoot.
-func request_fire_local(origin: Vector3, dir: Vector3, chg := 0.0) -> void:
+func request_fire_local(origin: Vector3, dir: Vector3, chg := 0.0, who := 1) -> void:
 	if multiplayer.is_server():
-		_srv_fire(1, origin, dir, chg)
+		_srv_fire(who, origin, dir, chg)
 	else:
 		srv_request_fire.rpc_id(1, origin, dir, chg)
 
@@ -481,7 +535,8 @@ func _srv_set_loadout(id: int, wire: Dictionary) -> void:
 		return
 	var inf: Dictionary = info[id]
 	inf.pending = Loadout.sanitize(wire)
-	c_pending.rpc_id(id, Loadout.to_wire(inf.pending))
+	if id > 0:
+		c_pending.rpc_id(id, Loadout.to_wire(inf.pending))
 	if not inf.confirmed:
 		inf.confirmed = true
 		_srv_apply_loadout(id, true)
@@ -500,9 +555,9 @@ func _srv_apply_loadout(id: int, heal: bool) -> void:
 		c_hp.rpc(id, inf.hp)
 	c_loadout.rpc(id, Loadout.to_wire(lo), inf.max_hp)
 
-func request_gadget(origin: Vector3, dir: Vector3) -> void:
+func request_gadget(origin: Vector3, dir: Vector3, who := 1) -> void:
 	if multiplayer.is_server():
-		_srv_gadget(1, origin, dir)
+		_srv_gadget(who, origin, dir)
 	else:
 		srv_gadget.rpc_id(1, origin, dir)
 
@@ -567,9 +622,9 @@ func _srv_remove_trap(tid: int) -> void:
 			break
 	c_trap_remove.rpc(tid)
 
-func request_ultimate() -> void:
+func request_ultimate(who := 1) -> void:
 	if multiplayer.is_server():
-		_srv_ultimate(1)
+		_srv_ultimate(who)
 	else:
 		srv_ultimate.rpc_id(1)
 

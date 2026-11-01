@@ -161,6 +161,8 @@ func _on_team_chosen(t: int) -> void:
 		_set_menu(false)
 
 func _on_confirm(lo: Dictionary) -> void:
+	Config.last_loadout = Loadout.to_wire(lo)
+	Config.save_settings()
 	world.request_loadout(lo)
 	first_pending = false
 	queued_msg = "Loadout sent"

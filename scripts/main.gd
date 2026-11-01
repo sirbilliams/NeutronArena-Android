@@ -18,8 +18,20 @@ func _ready() -> void:
 		elif a.begins_with("--port="): port = int(a.substr(7))
 		elif a.begins_with("--test="): test = a.substr(7)
 		elif a.begins_with("--shot="): shot_path = a.substr(7)
+		elif a == "--bots": Config.bots_enabled = true
+		elif a == "--nobots": Config.bots_enabled = false
+		elif a.begins_with("--difficulty="): Config.bot_difficulty = a.substr(13)
+		elif a.begins_with("--beacon_port="): Config.beacon_port = int(a.substr(14))
 	if test != "":
 		Config.test_mode = true
+		Config.bots_enabled = OS.get_cmdline_user_args().has("--bots")   # tests: no bots unless asked
+		var bt := test.begins_with("bot_")
+		if bt:
+			var tb = load("res://scripts/bot_test.gd").new()
+			tb.main = self
+			tb.role = test.substr(4)
+			add_child(tb)
+			return
 		var lo_test := test.begins_with("lo_")
 		var t = load("res://scripts/loadout_test.gd" if lo_test else "res://scripts/net_test.gd").new()
 		t.main = self
@@ -73,13 +85,27 @@ func _build_menu() -> void:
 	sub.text = "Jimmy vs Negatron - 5v5 bubble gun deathmatch"
 	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(sub)
+	var quick_btn := Button.new(); quick_btn.text = "Quick Play"
+	quick_btn.custom_minimum_size = Vector2(0, 56)
+	quick_btn.pressed.connect(quick_play)
+	box.add_child(quick_btn)
 	var host_btn := Button.new(); host_btn.text = "Host game"
-	host_btn.pressed.connect(start_host)
+	host_btn.pressed.connect(func(): Config.save_settings(); start_host())
 	box.add_child(host_btn)
-	var ip := LineEdit.new(); ip.text = Config.last_ip; ip.placeholder_text = "Server IP"
-	box.add_child(ip)
-	var join_btn := Button.new(); join_btn.text = "Join game"
-	join_btn.pressed.connect(func(): Config.last_ip = ip.text; start_join(ip.text))
+	var bots_row := HBoxContainer.new()
+	box.add_child(bots_row)
+	var bots_cb := CheckBox.new(); bots_cb.text = "Bots: fill to 5v5"
+	bots_cb.button_pressed = Config.bots_enabled
+	bots_cb.toggled.connect(func(on: bool): Config.bots_enabled = on)
+	bots_row.add_child(bots_cb)
+	var diff := OptionButton.new()
+	for d in ["easy", "normal", "hard"]:
+		diff.add_item(d)
+	diff.selected = ["easy", "normal", "hard"].find(Config.bot_difficulty)
+	diff.item_selected.connect(func(i: int): Config.bot_difficulty = diff.get_item_text(i))
+	bots_row.add_child(diff)
+	var join_btn := Button.new(); join_btn.text = "Join game (LAN list / IP)"
+	join_btn.pressed.connect(_show_join)
 	box.add_child(join_btn)
 	var reimp := Button.new(); reimp.text = "Re-import game files (Neutron / Boy Genius ISO)"
 	reimp.pressed.connect(func(): _show_setup(true))
@@ -104,7 +130,7 @@ func _build_menu() -> void:
 	quit.pressed.connect(func(): get_tree().quit())
 	box.add_child(quit)
 	_check_assets()
-	host_btn.grab_focus()
+	quick_btn.grab_focus()
 
 func _check_assets() -> void:
 	if status:
@@ -126,8 +152,64 @@ func _enter_game() -> bool:
 		push_error("level failed to load")
 		return false
 	hud = Hud.new(); hud.world = world; add_child(hud)
+	var sb := Scoreboard.new(); sb.world = world; add_child(sb)
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED if DisplayServer.get_name() != "headless" and not Config.test_mode else Input.MOUSE_MODE_VISIBLE
 	return true
+
+func _show_join() -> void:
+	if menu:
+		menu.visible = false
+	beacon = LanBeacon.new()
+	add_child(beacon)
+	beacon.start_listen()
+	var js := JoinScreen.new()
+	js.beacon = beacon
+	js.set_anchors_preset(Control.PRESET_FULL_RECT)
+	add_child(js)
+	var close := func():
+		js.queue_free(); beacon.queue_free(); beacon = null
+		if menu: menu.visible = true
+	js.back.connect(close)
+	js.join_requested.connect(func(ip: String, prt: int):
+		js.queue_free(); beacon.queue_free(); beacon = null
+		port = prt
+		Config.save_settings()
+		start_join(ip))
+
+var beacon: LanBeacon
+
+## Quick Play: join a LAN game if one answers within ~2 s, else host with bots. Auto team + last-used loadout.
+func quick_play() -> void:
+	if is_instance_valid(status): status.text = "Looking for a LAN game..."
+	var lb := LanBeacon.new()
+	add_child(lb)
+	lb.start_listen()
+	var t := 0.0
+	while t < 2.0 and lb.games().is_empty():
+		await get_tree().create_timer(0.1).timeout
+		t += 0.1
+	var games := lb.games()
+	lb.queue_free()
+	var ok := false
+	if not games.is_empty():
+		port = games[0].port
+		ok = start_join(games[0].ip)
+		if ok:
+			await multiplayer.connected_to_server
+	else:
+		Config.bots_enabled = true
+		ok = start_host()
+	if not ok:
+		if is_instance_valid(status): status.text = "Quick Play failed."
+		return
+	hud.ever_joined = true      # no team menu: auto team
+	hud.first_done = true       # no loadout menu: last-used loadout
+	hud.first_pending = false
+	world.request_team(-1)
+	while not world.players.has(multiplayer.get_unique_id()):
+		await get_tree().create_timer(0.1).timeout
+	if not Config.last_loadout.is_empty():
+		world.request_loadout(Config.last_loadout)
 
 func start_host() -> bool:
 	if not _enter_game(): return false
@@ -138,7 +220,14 @@ func start_host() -> bool:
 		return false
 	multiplayer.multiplayer_peer = peer
 	world.start_server()
-	print("HOSTING on port ", port)
+	beacon = LanBeacon.new()
+	add_child(beacon)
+	beacon.start_host(func():
+		var humans := 0
+		for i in world.info:
+			if i > 0: humans += 1
+		return {"name": LanBeacon.host_name(), "players": humans, "bots": world.info.size() - humans, "max": Config.MAX_PLAYERS, "map": world.level.layout_name, "port": port})
+	print("HOSTING on port ", port, " bots=", Config.bots_enabled, " ", Config.bot_difficulty)
 	return true
 
 func start_join(ip: String) -> bool:

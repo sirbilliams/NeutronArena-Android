@@ -16,6 +16,11 @@ var asset_dir := ""          # where the glb files are read from (imported ones,
 var dev_asset_dir := ""      # optional: a folder with exported glbs (dev fallback, the old way)
 var last_ip := "127.0.0.1"
 var test_mode := false   # headless tests: no local input
+const BEACON_PORT := 7778    # LAN discovery (UDP broadcast, scripts/lan_beacon.gd)
+var beacon_port := BEACON_PORT
+var bots_enabled := true     # host option: fill both teams to 5 with bots
+var bot_difficulty := "normal"   # easy / normal / hard
+var last_loadout := {}       # last confirmed loadout (Quick Play reuses it)
 
 ## Android: folders searched for the game export (first one that has the files wins). Needs "All files access"
 ## (or adb push into the app folder below, which needs no permission).
@@ -50,6 +55,9 @@ func _ready() -> void:
 	if cf.load(SETTINGS) == OK:
 		dev_asset_dir = cf.get_value("game", "asset_dir", dev_asset_dir)
 		last_ip = cf.get_value("game", "last_ip", last_ip)
+		bots_enabled = cf.get_value("game", "bots", bots_enabled)
+		bot_difficulty = cf.get_value("game", "bot_difficulty", bot_difficulty)
+		last_loadout = cf.get_value("game", "last_loadout", last_loadout)
 	asset_dir = dev_asset_dir
 	if imported_ok():
 		asset_dir = import_dir()
@@ -68,6 +76,9 @@ func save_settings() -> void:
 	var cf := ConfigFile.new()
 	cf.set_value("game", "asset_dir", dev_asset_dir)
 	cf.set_value("game", "last_ip", last_ip)
+	cf.set_value("game", "bots", bots_enabled)
+	cf.set_value("game", "bot_difficulty", bot_difficulty)
+	cf.set_value("game", "last_loadout", last_loadout)
 	cf.save(SETTINGS)
 
 ## Android: ask for storage access (runtime + All-files access declared in the export preset).

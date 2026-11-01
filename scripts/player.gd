@@ -135,10 +135,14 @@ var label: Label3D
 var test_move := Vector2.ZERO
 var test_jump := false
 var test_jump_held := false
+# Server-side bots (scripts/bot_brain.gd): peer_id < 0. They run _local_step on the server with these injected inputs.
+var is_bot := false
+var bot_in := {"mv": Vector2.ZERO, "fire": false, "jump": false, "jump_held": false, "mvt": false, "mvt_press": false, "aim": Vector3.FORWARD}
 
 func _ready() -> void:
-	is_local = peer_id == multiplayer.get_unique_id()
-	set_multiplayer_authority(peer_id)
+	is_bot = peer_id < 0
+	is_local = peer_id == multiplayer.get_unique_id() or (is_bot and multiplayer.is_server())
+	set_multiplayer_authority(1 if is_bot else peer_id)
 	collision_layer = 2
 	collision_mask = 1
 	var cs := CollisionShape3D.new()
@@ -157,13 +161,13 @@ func _ready() -> void:
 	wall_min_slide_angle = deg_to_rad(15)
 	_build_model()
 	label = Label3D.new()
-	label.text = "%s %d" % [Config.TEAM_NAMES[team], peer_id]
+	label.text = ("%s [BOT]" % Config.TEAM_NAMES[team]) if is_bot else "%s %d" % [Config.TEAM_NAMES[team], peer_id]
 	label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 	label.modulate = Config.TEAM_COLORS[team]
 	label.position.y = MODEL_HEIGHT + 0.25
 	label.pixel_size = 0.004
 	label.no_depth_test = true
-	label.visible = not is_local
+	label.visible = not is_local or is_bot
 	add_child(label)
 	t_pos = position
 	fx_mark = Label3D.new()
@@ -177,7 +181,7 @@ func _ready() -> void:
 	fx_mark.render_priority = 5
 	add_child(fx_mark)
 	set_loadout(loadout, max_hp)
-	if is_local:
+	if is_local and not is_bot:
 		_build_camera()
 
 func _build_model() -> void:
@@ -309,7 +313,7 @@ func _process(delta: float) -> void:
 		_update_cam(delta)
 
 func _input(event: InputEvent) -> void:
-	if not is_local or Config.test_mode:
+	if not is_local or is_bot or Config.test_mode:
 		return
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		cam_yaw -= event.relative.x * MOUSE_SENS
@@ -385,22 +389,31 @@ func try_gadget(dir_override := Vector3.ZERO) -> void:
 	if dir_override == Vector3.ZERO and cam == null:
 		return
 	gadget_cd = gadget.f("cooldown")
-	world.request_gadget(muzzle(), dir_override if dir_override != Vector3.ZERO else aim_direction_from_camera())
+	world.request_gadget(muzzle(), dir_override if dir_override != Vector3.ZERO else aim_direction_from_camera(), peer_id)
 
 func try_ultimate() -> void:
 	if alive and ult_charge >= int(ultimate.f("cost")) and not has_status("ult"):
-		world.request_ultimate()
+		world.request_ultimate(peer_id)
 
 func _local_step(delta: float) -> void:
 	var dead_or_over: bool = (not alive) or world.match_over
-	var live_input := (not Config.test_mode) and (not dead_or_over) and not input_blocked
+	var live_input := (is_bot or not Config.test_mode) and (not dead_or_over) and not input_blocked
 	var mv := Vector2.ZERO
 	var firing := false
 	var jump_pressed := false
 	var jump_held := false
 	var mvt_pressed := false
 	var mvt_held := false
-	if Config.test_mode:
+	if is_bot:
+		mv = bot_in.mv
+		firing = bot_in.fire
+		jump_pressed = bot_in.jump
+		jump_held = bot_in.jump_held
+		mvt_pressed = bot_in.mvt_press
+		mvt_held = bot_in.mvt
+		bot_in.jump = false
+		bot_in.mvt_press = false
+	elif Config.test_mode:
 		mv = test_move
 		jump_pressed = test_jump
 		jump_held = test_jump_held
@@ -605,6 +618,8 @@ func muzzle() -> Vector3:
 	return global_position + Vector3(0, 1.0, 0)
 
 func aim_direction_from_camera() -> Vector3:
+	if is_bot:
+		return bot_in.aim
 	var from := cam.global_position
 	var fwd := -cam.global_transform.basis.z
 	var space := get_world_3d().direct_space_state
@@ -621,7 +636,7 @@ func fire(dir: Vector3, chg := 0.0) -> void:
 		return
 	fire_cd = w.fire_interval
 	shoot_pose = 0.4
-	world.request_fire_local(muzzle() + dir.normalized() * 0.5, dir, chg)
+	world.request_fire_local(muzzle() + dir.normalized() * 0.5, dir, chg, peer_id)
 
 @rpc("authority", "unreliable_ordered")
 func net_state(pos: Vector3, yaw: float, spd: float, flags := 0, aux := Vector3.ZERO, grounded := true, stamp := 0.0) -> void:
@@ -705,7 +720,7 @@ func _animate() -> void:
 	_update_fx()
 	_update_gun()
 	if label:
-		label.visible = alive and not is_local
+		label.visible = alive and (not is_local or is_bot)
 	if team == Config.TEAM_JIMMY and jim_scooter != null and ult_is(&"goddard_scooter") and anim and anim.has_animation("jimmyscooter"):
 		_play("jimmyscooter" if h_speed > 0.4 else "jimmyscooterstop", 1.0)
 	else:
@@ -775,7 +790,7 @@ func _update_fx() -> void:
 		fx_drone.position = Vector3(cos(Time.get_ticks_msec() / 400.0) * 0.8, 2.0 + sin(Time.get_ticks_msec() / 300.0) * 0.1, sin(Time.get_ticks_msec() / 400.0) * 0.8)
 	if fx_mark:
 		var lt: int = world.local_team() if world else -1
-		fx_mark.visible = alive and has_status("marked") and int(status_val.get("marked", -1)) == lt and not is_local
+		fx_mark.visible = alive and has_status("marked") and int(status_val.get("marked", -1)) == lt and (not is_local or is_bot)
 	var hooking := (fl & 8) != 0 and alive
 	var hp_pt := hook_point if is_local else t_aux
 	if fx_hook:
