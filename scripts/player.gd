@@ -9,6 +9,26 @@ const MODEL_YAW := PI / 2.0     # glb characters actually face +X natively (shot
 const SYNC_HZ := 20.0
 const MOUSE_SENS := 0.0025
 const STICK_SENS := 2.8
+# --- movement feel
+const ACCEL_GROUND := 55.0      # m/s^2 towards the wish velocity on the floor
+const DECEL_GROUND := 70.0      # m/s^2 braking when there is no input (no sliding when idle)
+const ACCEL_AIR := 16.0
+const DECEL_AIR := 5.0          # air drag: keep momentum when the stick is released
+const COYOTE_TIME := 0.12
+const JUMP_BUFFER := 0.12
+const JUMP_CUT := 0.45          # releasing jump while rising caps the rise speed at this fraction
+const TERMINAL_FALL := 35.0
+const STEP_H := 0.35            # max curb / step height walked up without jumping
+const STEP_LOOK := 0.25         # m probed ahead for a step
+const TURN_RATE := 16.0         # exp smoothing of facing
+const MAX_TURN := 14.0          # rad/s cap on facing change (no snapping)
+const LOOK_DEADZONE := 0.18
+const LOOK_RAMP_TIME := 0.35    # seconds at full deflection until stick look reaches its boost
+const LOOK_BOOST := 0.6
+const INTERP_DELAY := 0.1       # remote players are rendered this far in the past
+const WALK_ENTER := 0.25
+const RUN_ENTER := 2.7
+const RUN_EXIT := 2.4
 
 var peer_id := 0
 var team := 0
@@ -61,12 +81,30 @@ var model: Node3D
 var anim: AnimationPlayer
 var anim_idle := ""
 var anim_run := ""
+var anim_walk := ""
+var air_time := 0.0
 var cur_anim := ""
 var model_yaw := 0.0
 var fire_cd := 0.0
 var shoot_pose := 0.0
 var sync_t := 0.0
 var h_speed := 0.0
+var coyote_t := 0.0
+var jump_buf := 0.0
+var jump_was_held := false
+var vis_off := 0.0             # visual-only Y offset (m), decays to 0: hides step-up / snap pops
+var lift_cur := 0.0            # current foot lift (m), blended between clips
+var gait := &"idle"            # idle / walk / run / air
+var floor_flicker := 0         # test: frames is_on_floor() changed while walking flat
+var look_ramp := 0.0
+var cam_focus := Vector3.ZERO
+var cam_ready := false
+var t_grounded := true
+var _snaps: Array = []         # remote snapshot buffer [{t, pos, yaw, spd, flags, aux, g}]
+var _clock_off := 0.0
+var _clock_init := false
+var _was_floor := false
+var _prev_y := 0.0
 # puppet targets
 var t_pos := Vector3.ZERO
 var t_yaw := 0.0
@@ -80,6 +118,8 @@ var cam_pitch := -0.15
 var label: Label3D
 # test hook
 var test_move := Vector2.ZERO
+var test_jump := false
+var test_jump_held := false
 
 func _ready() -> void:
 	is_local = peer_id == multiplayer.get_unique_id()
@@ -93,8 +133,13 @@ func _ready() -> void:
 	cs.shape = cap
 	cs.position.y = MODEL_HEIGHT * 0.5
 	add_child(cs)
-	floor_snap_length = 0.4
-	floor_max_angle = deg_to_rad(55)
+	floor_snap_length = 0.35
+	floor_max_angle = deg_to_rad(50)
+	floor_stop_on_slope = true
+	floor_constant_speed = true
+	floor_block_on_wall = true
+	max_slides = 6
+	wall_min_slide_angle = deg_to_rad(15)
 	_build_model()
 	label = Label3D.new()
 	label.text = "%s %d" % [Config.TEAM_NAMES[team], peer_id]
@@ -150,33 +195,52 @@ func _build_model() -> void:
 	if anim == null:
 		return
 	if team == Config.TEAM_JIMMY:
-		anim_idle = "jimmyidle"; anim_run = "jimmyfullrun"
+		anim_idle = "jimmyidle"; anim_run = "jimmyfullrun"; anim_walk = "jimmywalk"
 	else:
 		# villain model + run/stop animations from nummey.glb (same skeleton)
 		var other := Assets.load_scene("nummey.glb")
 		var oap := other.get_node_or_null("AnimationPlayer") as AnimationPlayer
 		var lib := anim.get_animation_library("")
 		if oap:
-			for n in ["nummeyrun", "nummeystop"]:
+			for n in ["nummeyrun", "nummeystop", "nummeywalk"]:
 				if oap.has_animation(n) and not lib.has_animation(n):
 					lib.add_animation(n, oap.get_animation(n).duplicate())
 		other.free()
-		anim_idle = "nummeystop"; anim_run = "nummeyrun"
+		anim_idle = "nummeystop"; anim_run = "nummeyrun"; anim_walk = "nummeywalk"
 	for n in anim.get_animation_list():
 		anim.get_animation(n).loop_mode = Animation.LOOP_LINEAR
 	_play(anim_idle)
 
-func _play(n: String, spd := 1.0) -> void:
+func _play(n: String, spd := 1.0, blend := 0.18) -> void:
 	if anim == null or not anim.has_animation(n):
 		return
 	if cur_anim != n:
+		# walk <-> run keep the cycle phase so the feet stay in step through the crossfade
+		var keep := (cur_anim == anim_walk and n == anim_run) or (cur_anim == anim_run and n == anim_walk)
+		var frac := 0.0
+		if keep and anim.current_animation_length > 0.0:
+			frac = anim.current_animation_position / anim.current_animation_length
 		cur_anim = n
-		anim.play(n, 0.15)
+		anim.play(n, blend)
+		if keep:
+			anim.seek(frac * anim.get_animation(n).length, false)
 	anim.speed_scale = spd
+
+## idle / walk / run / air from horizontal speed (hysteresis so it never flaps); returns the gait
+func _gait_for(hs: float, airborne: bool) -> StringName:
+	if airborne:
+		return &"air"
+	var enter_w := WALK_ENTER if (gait == &"idle" or gait == &"air") else WALK_ENTER * 0.6
+	if hs < enter_w:
+		return &"idle"
+	if hs > (RUN_EXIT if gait == &"run" else RUN_ENTER):
+		return &"run"
+	return &"walk"
 
 func _build_camera() -> void:
 	cam_pivot = Node3D.new()
 	cam_pivot.top_level = true
+	cam_pivot.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF   # follows the interpolated body in _process
 	add_child(cam_pivot)
 	cam_arm = SpringArm3D.new()
 	cam_arm.spring_length = 3.4
@@ -193,11 +257,44 @@ func _build_camera() -> void:
 	cam_arm.add_child(cam)
 	cam.current = true
 	cam_yaw = rotation.y
-	_update_cam()
+	_update_cam(0.0)
 
-func _update_cam() -> void:
-	cam_pivot.global_position = global_position + Vector3(0, 1.45, 0)
+## Render-rate camera: follows the physics-interpolated body with slight lag (horizontal tighter than vertical).
+func _update_cam(dt: float) -> void:
+	var tgt := get_global_transform_interpolated().origin + Vector3(0, 1.45, 0)
+	if not cam_ready or cam_focus.distance_to(tgt) > 6.0:
+		cam_focus = tgt
+		cam_ready = true
+	else:
+		var kx := 1.0 - exp(-22.0 * dt)
+		var ky := 1.0 - exp(-9.0 * dt)
+		cam_focus.x = lerpf(cam_focus.x, tgt.x, kx)
+		cam_focus.z = lerpf(cam_focus.z, tgt.z, kx)
+		cam_focus.y = lerpf(cam_focus.y, tgt.y, ky)
+	cam_pivot.global_position = cam_focus
 	cam_pivot.rotation = Vector3(cam_pitch, cam_yaw, 0)
+
+func _look_input(delta: float) -> void:
+	var v := Vector2(Input.get_axis("look_left", "look_right"), Input.get_axis("look_up", "look_down"))
+	var m := v.length()
+	if m <= LOOK_DEADZONE:
+		look_ramp = maxf(0.0, look_ramp - delta / 0.12)
+		return
+	var shaped := pow((m - LOOK_DEADZONE) / (1.0 - LOOK_DEADZONE), 1.7)   # fine aim near the centre, fast at the rim
+	if m > 0.85:
+		look_ramp = minf(1.0, look_ramp + delta / LOOK_RAMP_TIME)
+	else:
+		look_ramp = maxf(0.0, look_ramp - delta / 0.12)
+	var rate := STICK_SENS * 1.25 * shaped * (1.0 + LOOK_BOOST * look_ramp)
+	var d := v / m
+	cam_yaw -= d.x * rate * delta
+	cam_pitch = clampf(cam_pitch - d.y * rate * 0.8 * delta, -1.3, 1.0)
+
+func _process(delta: float) -> void:
+	if is_local and cam_pivot:
+		if not Config.test_mode and alive and not input_blocked and world != null and not world.match_over:
+			_look_input(delta)
+		_update_cam(delta)
 
 func _input(event: InputEvent) -> void:
 	if not is_local or Config.test_mode:
@@ -218,9 +315,7 @@ func _physics_process(delta: float) -> void:
 	if is_local:
 		_local_step(delta)
 	else:
-		position = position.lerp(t_pos, 1.0 - exp(-16.0 * delta))
-		model_yaw = lerp_angle(model_yaw, t_yaw, 1.0 - exp(-16.0 * delta))
-		h_speed = t_speed
+		_puppet_step(delta)
 	_animate()
 
 func has_status(kind: String) -> bool:
@@ -295,12 +390,12 @@ func _local_step(delta: float) -> void:
 	var mvt_held := false
 	if Config.test_mode:
 		mv = test_move
+		jump_pressed = test_jump
+		jump_held = test_jump_held
+		test_jump = false
 	elif live_input:
 		mv = Input.get_vector("move_left", "move_right", "move_forward", "move_back")
 		firing = Input.is_action_pressed("fire")
-		var look := Input.get_vector("look_left", "look_right", "look_up", "look_down")
-		cam_yaw -= look.x * STICK_SENS * delta
-		cam_pitch = clampf(cam_pitch - look.y * STICK_SENS * delta, -1.3, 1.0)
 		jump_pressed = Input.is_action_just_pressed("jump")
 		jump_held = Input.is_action_pressed("jump")
 		mvt_pressed = Input.is_action_just_pressed("movement")
@@ -332,18 +427,44 @@ func _local_step(delta: float) -> void:
 	else:
 		if floor_now:
 			jumps_used = 0
-			velocity.x = dir.x * spd
-			velocity.z = dir.z * spd
-			if alive and jump_pressed:
-				velocity.y = JUMP_SPEED
+			coyote_t = COYOTE_TIME
 		else:
-			velocity.x = move_toward(velocity.x, dir.x * spd, 20.0 * delta)
-			velocity.z = move_toward(velocity.z, dir.z * spd, 20.0 * delta)
-		velocity.y -= GRAVITY * delta
+			coyote_t = maxf(0.0, coyote_t - delta)
+		jump_buf = JUMP_BUFFER if jump_pressed else maxf(0.0, jump_buf - delta)
+		var jumped := false
+		if alive and jump_buf > 0.0 and coyote_t > 0.0 and velocity.y <= 0.5:
+			velocity.y = JUMP_SPEED
+			coyote_t = 0.0
+			jump_buf = 0.0
+			jumped = true
+		var grounded := floor_now and not jumped
+		# acceleration curves: snappy on the ground, floaty-but-controllable in the air, hard brake when idle
+		var wish := Vector2(dir.x * spd, dir.z * spd)
+		var cur := Vector2(velocity.x, velocity.z)
+		var has_input := dir.length() > 0.05
+		var rate: float
+		if grounded:
+			rate = ACCEL_GROUND if has_input else DECEL_GROUND
+			if has_input and cur.dot(wish) < 0.0:
+				rate *= 1.6    # reversing
+		else:
+			rate = ACCEL_AIR if has_input else DECEL_AIR
+		cur = cur.move_toward(wish, rate * delta)
+		velocity.x = cur.x
+		velocity.z = cur.y
+		if grounded:
+			velocity.y = 0.0   # floor snap keeps contact; no gravity build-up and no residual slope velocity => no micro-bounce
+		else:
+			velocity.y = maxf(velocity.y - GRAVITY * delta * 0.5, -TERMINAL_FALL)   # half step now, half after the move: tick-rate independent arcs
+		if jump_was_held and not jump_held and velocity.y > JUMP_SPEED * JUMP_CUT and movement.id != &"jetpack" and not jumped:
+			velocity.y = JUMP_SPEED * JUMP_CUT   # short hop on early release
+		jump_was_held = jump_held
+		if grounded and alive and not hook_active_now():
+			_try_step_up(delta)
 		if alive and live_input:
 			match movement.id:
 				&"goof_boots":
-					if not floor_now and jump_pressed and jumps_used < int(movement.f("extra_jumps")):
+					if not floor_now and coyote_t <= 0.0 and not jumped and jump_pressed and jumps_used < int(movement.f("extra_jumps")):
 						velocity.y = JUMP_SPEED
 						jumps_used += 1
 					elif not floor_now and jump_held and velocity.y < -movement.f("glide_fall"):
@@ -370,17 +491,29 @@ func _local_step(delta: float) -> void:
 	if floor_now and (flags & 5) == 0:
 		fuel = minf(movement.f("fuel", 100.0), fuel + movement.f("regen") * delta)
 	mv_flags = flags
+	var y0 := global_position.y
+	var p0 := global_position
 	move_and_slide()
+	var on_f := is_on_floor()
+	if on_f != _was_floor:
+		floor_changes += 1
+	# a floor-snap drop (curb edge) pops the body down: keep the model where it was and ease it down
+	var hmove := Vector2(global_position.x - p0.x, global_position.z - p0.z).length()
+	var dy := global_position.y - y0
+	if _was_floor and on_f and dy < -(0.9 * hmove + 0.04):
+		vis_off = minf(0.4, vis_off - dy)
+	_was_floor = on_f
+	if not on_f:
+		velocity.y = maxf(velocity.y - GRAVITY * delta * 0.5, -TERMINAL_FALL)
 	h_speed = Vector2(velocity.x, velocity.z).length()
 	if global_position.y < -40.0:  # fell out of the world
 		var sp: Transform3D = world.level.spawn_point(team, 0)
 		global_position = sp.origin
 		velocity = Vector3.ZERO
-	if dir.length() > 0.1:
-		var target := atan2(-dir.x, -dir.z)
-		model_yaw = lerp_angle(model_yaw, target, 1.0 - exp(-14.0 * delta))
 	if shoot_pose > 0.0 or ult_is(&"rocket_ship"):
-		model_yaw = lerp_angle(model_yaw, cam_yaw, 1.0 - exp(-20.0 * delta))
+		_face(cam_yaw, delta, 1.3)    # aiming / shooting: face the camera, strafe
+	elif dir.length() > 0.1:
+		_face(atan2(-dir.x, -dir.z), delta, 1.0)
 	var w := effective_weapon()
 	if alive and not has_status("phase") and not world.match_over:
 		if w.charge_time > 0.0:
@@ -397,13 +530,64 @@ func _local_step(delta: float) -> void:
 				fire(aim_direction_from_camera())
 	else:
 		charge = 0.0
-	_update_cam()
 	sync_t += delta
 	if sync_t >= 1.0 / SYNC_HZ:
 		sync_t = 0.0
 		if multiplayer.has_multiplayer_peer() and multiplayer.multiplayer_peer.get_connection_status() == MultiplayerPeer.CONNECTION_CONNECTED:
-			net_state.rpc(global_position, model_yaw, h_speed, mv_flags, hook_point if hook_t > 0.0 else Vector3.ZERO)
+			net_state.rpc(global_position, model_yaw, h_speed, mv_flags, hook_point if hook_t > 0.0 else Vector3.ZERO, on_f, Time.get_ticks_msec() / 1000.0)
 
+
+var floor_changes := 0
+
+func hook_active_now() -> bool:
+	return hook_t > 0.0
+
+func _face(target: float, delta: float, k: float) -> void:
+	var diff := angle_difference(model_yaw, target)
+	var step := diff * (1.0 - exp(-TURN_RATE * k * delta))
+	step = clampf(step, -MAX_TURN * delta, MAX_TURN * delta)
+	model_yaw = wrapf(model_yaw + step, -PI, PI)
+
+func _probe(from: Transform3D, motion: Vector3, res: PhysicsTestMotionResult3D = null) -> bool:
+	var prm := PhysicsTestMotionParameters3D.new()
+	prm.from = from
+	prm.motion = motion
+	prm.margin = safe_margin
+	return PhysicsServer3D.body_test_motion(get_rid(), prm, res)
+
+## Walk up curbs / steps: probe ahead, and if a low obstacle blocks us, hop onto the ledge (the model eases up via vis_off).
+func _try_step_up(delta: float) -> void:
+	var hv := Vector3(velocity.x, 0.0, velocity.z)
+	var sp := hv.length()
+	if sp < 0.5:
+		return
+	var look := hv / sp * maxf(sp * delta * 1.25, STEP_LOOK)
+	var col := PhysicsTestMotionResult3D.new()
+	if not _probe(global_transform, look, col):
+		return
+	if col.get_collision_normal(0).y > 0.7:
+		return   # a walkable slope, the slide handles it
+	var up := Vector3.UP * STEP_H
+	if _probe(global_transform, up):
+		return   # low ceiling
+	var raised := global_transform.translated(up)
+	if _probe(raised, look):
+		return   # too tall
+	# exact ledge height from a ray just past the contact point (a capsule probe would rest on the corner and over-lift)
+	var dirn := look.normalized()
+	var from := col.get_collision_point(0) + dirn * 0.04 + Vector3.UP * (STEP_H + 0.05)
+	var rq := PhysicsRayQueryParameters3D.create(from, from + Vector3.DOWN * (STEP_H + 0.2), collision_mask)
+	var hit := get_world_3d().direct_space_state.intersect_ray(rq)
+	if hit.is_empty() or hit.normal.y < cos(floor_max_angle):
+		return
+	var gain: float = hit.position.y - global_position.y
+	if gain < 0.02 or gain > STEP_H + 0.01:
+		return
+	global_position.y += gain + 0.004
+	vis_off = maxf(-0.45, vis_off - gain)
+	step_ups += 1
+
+var step_ups := 0
 
 func muzzle() -> Vector3:
 	return global_position + Vector3(0, 1.0, 0)
@@ -428,12 +612,56 @@ func fire(dir: Vector3, chg := 0.0) -> void:
 	world.request_fire_local(muzzle() + dir.normalized() * 0.5, dir, chg)
 
 @rpc("authority", "unreliable_ordered")
-func net_state(pos: Vector3, yaw: float, spd: float, flags := 0, aux := Vector3.ZERO) -> void:
+func net_state(pos: Vector3, yaw: float, spd: float, flags := 0, aux := Vector3.ZERO, grounded := true, stamp := 0.0) -> void:
 	t_pos = pos
 	t_yaw = yaw
 	t_speed = spd
 	t_flags = flags
 	t_aux = aux
+	t_grounded = grounded
+	if stamp > 0.0:
+		var smp := Time.get_ticks_msec() / 1000.0 - stamp
+		if not _clock_init or smp < _clock_off:
+			_clock_off = smp
+		else:
+			_clock_off = lerpf(_clock_off, smp, 0.002)
+		_clock_init = true
+		if not _snaps.is_empty():
+			var last: Dictionary = _snaps.back()
+			if stamp <= last.t:
+				return
+			if last.pos.distance_to(pos) > 6.0:
+				_snaps.clear()   # teleport / respawn: never glide across the map
+		_snaps.append({"t": stamp, "pos": pos, "yaw": yaw, "spd": spd, "flags": flags, "aux": aux, "g": grounded})
+		if _snaps.size() > 16:
+			_snaps.pop_front()
+
+## Remote players: render INTERP_DELAY in the past and interpolate between the two snapshots around that time.
+func _puppet_step(delta: float) -> void:
+	if _snaps.size() < 2:
+		position = position.lerp(t_pos, 1.0 - exp(-16.0 * delta))
+		model_yaw = lerp_angle(model_yaw, t_yaw, 1.0 - exp(-16.0 * delta))
+		h_speed = t_speed
+		return
+	var ts := Time.get_ticks_msec() / 1000.0 - _clock_off - INTERP_DELAY
+	while _snaps.size() > 2 and _snaps[1].t <= ts:
+		_snaps.pop_front()
+	var a: Dictionary = _snaps[0]
+	var b: Dictionary = _snaps[1]
+	if ts >= b.t:
+		var vel: Vector3 = (b.pos - a.pos) / maxf(b.t - a.t, 0.001)
+		vel.y = 0.0
+		position = b.pos + vel * minf(ts - b.t, 0.1)
+		model_yaw = b.yaw
+		h_speed = b.spd
+		t_flags = b.flags; t_aux = b.aux; t_grounded = b.g
+	else:
+		var f := clampf((ts - a.t) / maxf(b.t - a.t, 0.001), 0.0, 1.0)
+		position = a.pos.lerp(b.pos, f)
+		model_yaw = lerp_angle(a.yaw, b.yaw, f)
+		h_speed = lerpf(a.spd, b.spd, f)
+		var s: Dictionary = b if f > 0.5 else a
+		t_flags = s.flags; t_aux = s.aux; t_grounded = s.g
 
 func eff_flags() -> int:
 	return mv_flags if is_local else t_flags
@@ -467,10 +695,30 @@ func _animate() -> void:
 		label.visible = alive and not is_local
 	if team == Config.TEAM_JIMMY and jim_scooter != null and ult_is(&"goddard_scooter") and anim and anim.has_animation("jimmyscooter"):
 		_play("jimmyscooter" if h_speed > 0.4 else "jimmyscooterstop", 1.0)
-	elif h_speed > 0.4:
-		_play(anim_run, clampf(h_speed / RUN_SPEED, 0.6, 1.4))
 	else:
-		_play(anim_idle, 1.0)
+		var grounded: bool = _was_floor if is_local else t_grounded
+		air_time = 0.0 if grounded else air_time + dt
+		gait = _gait_for(h_speed, air_time > 0.08)
+		match gait:
+			&"idle":
+				_play(anim_idle, 1.0)
+			&"walk":
+				_play(anim_walk, clampf(h_speed / maxf(FootTable.gs(anim_walk), 0.1), 0.5, 2.4))
+			&"run":
+				_play(anim_run, clampf(h_speed / maxf(FootTable.gs(anim_run), 0.1), 0.7, 2.4))
+			&"air":
+				# no jump clip in the art: hold a tucked run frame
+				if cur_anim == anim_run:
+					anim.speed_scale = 0.0
+				else:
+					_play(anim_run, 0.0, 0.12)
+					anim.seek(FootTable.AIR_T.get(anim_run, 0.2), false)
+	if anim:
+		var tgt: float = FootTable.lift(cur_anim)
+		lift_cur = lerpf(lift_cur, tgt, 1.0 - exp(-14.0 * dt))
+	vis_off *= exp(-14.0 * dt)
+	if model:
+		model.position.y = lift_cur * cur_shrink + vis_off
 
 func _set_ghost(on: bool) -> void:
 	if model == null:
@@ -536,11 +784,14 @@ func set_alive_at(t: Transform3D) -> void:
 	if is_local:
 		global_position = t.origin
 		velocity = Vector3.ZERO
+		vis_off = 0.0
+		cam_ready = false
 		cam_yaw = t.basis.get_euler().y
 		model_yaw = cam_yaw
 	else:
 		global_position = t.origin
 		t_pos = t.origin
+		_snaps.clear()
 
 ## Applies a server-confirmed loadout (also builds the gear visuals).
 func set_loadout(lo: Dictionary, mhp: int) -> void:
