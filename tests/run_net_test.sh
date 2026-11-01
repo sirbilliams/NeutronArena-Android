@@ -4,12 +4,12 @@ cd "$(dirname "$0")/.."
 G="flatpak run org.godotengine.Godot --headless --path ."
 PORT=${PORT:-24690}
 OUT=$(mktemp -d)
-timeout 150 $G -- --test=server --port=$PORT --expect=3 > $OUT/s.log 2>&1 &
+timeout 150 $G -- --test=server --port=$PORT --expect=3 --manual_team > $OUT/s.log 2>&1 &
 SP=$!
 sleep 6
-timeout 140 $G -- --test=client --port=$PORT > $OUT/c.log 2>&1 &
+timeout 140 $G -- --test=client --port=$PORT --manual_team > $OUT/c.log 2>&1 &
 CP=$!
-(sleep 5; timeout 135 $G -- --test=observer --port=$PORT > $OUT/o.log 2>&1) &
+(sleep 5; timeout 135 $G -- --test=observer --port=$PORT --manual_team > $OUT/o.log 2>&1) &
 OP=$!
 wait $SP; S=$?; wait $CP; C=$?; wait $OP; O=$?
 for f in s c o; do echo "== $f"; grep -E "^\s+\[|PASS|FAIL|SCRIPT ERROR|ERROR: [^R0-9]" $OUT/$f.log | grep -v -E "leaked|Leaked"; done

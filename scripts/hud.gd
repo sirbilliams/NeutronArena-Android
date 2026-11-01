@@ -13,6 +13,9 @@ var fuel_bar: ProgressBar
 var ult_bar: ProgressBar
 var menu: LoadoutMenu
 var menu_open := false
+var team_menu: TeamMenu
+var team_open := false
+var ever_joined := false
 var first_done := false
 var queued_msg := ""
 var first_pending := true
@@ -67,6 +70,14 @@ func _ready() -> void:
 	var ml := CanvasLayer.new(); ml.layer = 10
 	add_child(ml)
 	ml.add_child(menu)
+	menu.team_switch_requested.connect(_open_team_menu.bind(true))
+	team_menu = TeamMenu.new()
+	team_menu.set_anchors_preset(Control.PRESET_FULL_RECT)
+	team_menu.visible = false
+	team_menu.chosen.connect(_on_team_chosen)
+	team_menu.cancelled.connect(func(): _close_team_menu())
+	ml.add_child(team_menu)
+	world.team_refused.connect(func(msg: String): team_menu.set_info(msg))
 	info_label = Label.new()
 	info_label.set_anchors_preset(Control.PRESET_TOP_LEFT)
 	info_label.position = Vector2(10, 10)
@@ -78,6 +89,14 @@ func _process(_d: float) -> void:
 	score_label.text = "JIMMY %d  -  %d NEGATRON   (first to %d)" % [world.team_score[0], world.team_score[1], Config.WIN_SCORE]
 	var me: Player = world.players.get(multiplayer.get_unique_id())
 	info_label.text = "players: %d   %s" % [world.players.size(), "host" if multiplayer.is_server() else "client"]
+	if team_open:
+		team_menu.set_counts(_counts())
+	if me:
+		ever_joined = true
+	if me == null and not ever_joined and not team_open and not Config.test_mode:
+		_open_team_menu(false)
+	if me and team_open and not team_menu.can_cancel:
+		_close_team_menu()
 	if me:
 		if not first_done and not Config.test_mode:
 			first_done = true
@@ -107,6 +126,39 @@ func _process(_d: float) -> void:
 			banner.text = "Respawning..."
 		else:
 			banner.text = ""
+
+func _counts() -> Array:
+	var c := [0, 0]
+	for p in world.players.values():
+		c[p.team] += 1
+	return c
+
+func _open_team_menu(switching: bool) -> void:
+	if Config.test_mode:
+		return
+	team_open = true
+	team_menu.set_cancelable(switching)
+	team_menu.set_info("Pick a side, or auto-balance." if not switching else "Switching respawns you on the other side. Score is unchanged.")
+	team_menu.set_counts(_counts())
+	team_menu.visible = true
+	menu.visible = false
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	team_menu.focus_first()
+
+func _close_team_menu() -> void:
+	team_open = false
+	team_menu.visible = false
+	if menu_open:
+		menu.visible = true
+		menu.focus_first()
+	elif DisplayServer.get_name() != "headless":
+		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+
+func _on_team_chosen(t: int) -> void:
+	world.request_team(t)
+	if team_menu.can_cancel:
+		_close_team_menu()
+		_set_menu(false)
 
 func _on_confirm(lo: Dictionary) -> void:
 	world.request_loadout(lo)

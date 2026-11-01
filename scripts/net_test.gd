@@ -42,11 +42,17 @@ func _server() -> void:
 	check(await main.start_host(), "host started")
 	world = main.world
 	var exp := _expected_players()
+	var manual := OS.get_cmdline_user_args().has("--manual_team")
+	_team_rule_checks()
+	if manual:
+		world.request_team(Config.TEAM_JIMMY)
 	check(await wait_for(func(): return world.players.size() >= exp, 40.0), "%d players joined" % exp)
 	var me: Player = world.players[1]
 	check(me.team == Config.TEAM_JIMMY, "host is Jimmy")
 	var teams := [0, 0]
 	for p in world.players.values(): teams[p.team] += 1
+	if manual:
+		check(teams == [2, 1], "explicit choices honoured: host+observer Jimmy, client Negatron %s" % str(teams))
 	check(absi(teams[0] - teams[1]) <= 1, "teams balanced %s" % str(teams))
 	var victim_id := 0
 	for id in world.players:
@@ -94,8 +100,34 @@ func _server() -> void:
 	check(await wait_for(func(): return not world.match_over and world.team_score == [0, 0], 12.0), "match reset: scores 0-0")
 	await get_tree().create_timer(1.0).timeout
 	check(world.info[victim_id].alive, "all players alive after reset")
+	if OS.get_cmdline_user_args().has("--manual_team"):
+		var oid := 0
+		for id in world.players:
+			if id != 1 and world.info[id].team == Config.TEAM_JIMMY:
+				oid = id
+		check(oid != 0, "a second Jimmy peer exists for the switch test")
+		world.info[oid].kills = 3
+		var sc: Array = world.team_score.duplicate()
+		world._srv_team_request(oid, Config.TEAM_NEGATRON)
+		await get_tree().create_timer(0.5).timeout
+		check(world.info[oid].team == Config.TEAM_NEGATRON and world.players[oid].team == Config.TEAM_NEGATRON, "switch: peer moved to Negatron (server)")
+		check(world.info[oid].kills == 3 and world.info[oid].deaths == 0 and world.team_score == sc, "switch: no kill/death/score change")
+		check(world.players[oid].global_position.distance_to(world.level.raw_to_world(ArenaLevel.MUSEUM_CENTER)) < 25.0, "switch: respawned on the new side")
+		world._srv_team_request(oid, Config.TEAM_NEGATRON)
+		await get_tree().create_timer(0.3).timeout
+		check(world.players.size() == 3, "switch to the same team is a no-op")
 	await get_tree().create_timer(1.5).timeout  # let clients finish their checks
 	await finish()
+
+func _team_rule_checks() -> void:
+	check(World.resolve_team(0, [2, 2]).team == 0, "rule: Jimmy choice honoured")
+	check(World.resolve_team(1, [2, 2]).team == 1, "rule: Negatron choice honoured")
+	var r := World.resolve_team(0, [5, 2])
+	check(r.team == 1 and r.msg != "", "rule: full Jimmy -> placed on Negatron with message (%s)" % r.msg)
+	check(World.resolve_team(1, [5, 5]).team == -1, "rule: both full -> refused")
+	check(World.resolve_team(-1, [5, 4]).team == 1, "rule: auto picks smaller team")
+	check(World.resolve_team(-1, [3, 3]).team == 0, "rule: auto tie -> Jimmy")
+	check(World.resolve_team(-1, [5, 5]).team == -1, "rule: auto both full -> refused")
 
 func _shoot(shooter: Player, target: Player) -> void:
 	var tp := target.global_position + Vector3(0, 0.7, 0)
@@ -106,6 +138,11 @@ func _client() -> void:
 	var ip := "127.0.0.1"
 	check(await main.start_join(ip), "joined")
 	world = main.world
+	var manual := OS.get_cmdline_user_args().has("--manual_team")
+	if manual:
+		await get_tree().create_timer(2.0).timeout
+		check(not world.players.has(multiplayer.get_unique_id()), "client not spawned before choosing a team")
+		world.request_team(Config.TEAM_NEGATRON)
 	world.player_hurt.connect(func(id, hp): if id == multiplayer.get_unique_id() and hp < Config.MAX_HP: ev.hurt += 1)
 	world.player_died.connect(func(id, _k): if id == multiplayer.get_unique_id(): ev.died += 1)
 	world.player_respawned.connect(func(id): if id == multiplayer.get_unique_id(): ev.respawn += 1)
@@ -143,6 +180,9 @@ func _client() -> void:
 func _observer() -> void:
 	check(await main.start_join("127.0.0.1"), "joined")
 	world = main.world
+	if OS.get_cmdline_user_args().has("--manual_team"):
+		await get_tree().create_timer(3.0).timeout
+		world.request_team(Config.TEAM_JIMMY)
 	check(await wait_for(func(): return world.players.size() >= 3, 30.0), "sees 3 players")
 	var other: Player = null
 	for p in world.players.values():

@@ -27,7 +27,6 @@ const LAYOUTS := {
 			Vector2(16600, -19500), Vector2(2400, -19500), Vector2(2400, -9200), Vector2(13400, -9200),
 			Vector2(13400, 1200), Vector2(1500, 1200), Vector2(1500, 13000), Vector2(2400, 15200)],
 		"fwd": [[0.43, 0.28], [0.57, 0.72]],
-		"cover_step": 6000.0,
 	},
 	"compact": {
 		"rects": [
@@ -37,7 +36,6 @@ const LAYOUTS := {
 		"bases": [Vector3(14865, 0, -44900), Vector3(1800, 0, -30500)],
 		"route": [Vector2(14865, -44900), Vector2(1800, -44700), Vector2(1800, -30500)],
 		"fwd": [[], []],
-		"cover_step": 0.0,
 	},
 }
 const ZONE_CLEAR := 25.0   # metres: a forward zone is usable if no living enemy is this close to it
@@ -145,7 +143,6 @@ func load_level() -> bool:
 	if lv:
 		_chunk_level(lv)
 	_add_fence()
-	_add_cover()
 	print("level ready ms=", Time.get_ticks_msec() - t0, " chunks=", stats.chunks, " dropped=", stats.dropped)
 	return true
 
@@ -307,80 +304,6 @@ func _add_fence() -> void:
 						boxes += 1
 						run_start = -1
 	print("fence boxes=", boxes)
-
-## A few low barriers / crates in mid-map (original geometry, not from the game export).
-const COVER := [
-	# [raw x, raw z, size metres (x,y,z), yaw degrees]
-	[9300, -44900, Vector3(5.0, 1.3, 0.7), 0.0], [8000, -45300, Vector3(1.6, 1.6, 1.6), 20.0], [10700, -44500, Vector3(1.6, 1.0, 1.6), -15.0],
-	[9400, -37800, Vector3(0.7, 1.3, 5.0), 0.0], [8200, -37000, Vector3(1.6, 1.6, 1.6), 10.0], [10500, -38700, Vector3(1.6, 1.0, 1.6), 30.0],
-	[11200, -30500, Vector3(5.0, 1.3, 0.7), 0.0], [12600, -30900, Vector3(1.6, 1.6, 1.6), -20.0], [9900, -30000, Vector3(1.6, 1.0, 1.6), 5.0],
-]
-
-func _cover_items() -> Array:
-	var step: float = _layout().cover_step
-	if step <= 0.0:
-		return COVER
-	var items := []
-	var route: Array = _layout().route
-	var total := 0.0
-	for i in route.size() - 1:
-		total += route[i].distance_to(route[i + 1])
-	var s := step * 0.6
-	var k := 0
-	while s < total - step * 0.5:
-		var q := _route_at(route, s)
-		var pt: Vector2 = q[0]
-		var t: Vector2 = q[1]
-		var n := Vector2(-t.y, t.x)
-		var near_zone := false
-		for team in 2:
-			for z in zones[team]:
-				if Vector2(z.raw.x, z.raw.z).distance_to(pt) * Config.WORLD_SCALE < 14.0:
-					near_zone = true
-		if not near_zone:
-			var side := 1.0 if k % 2 == 0 else -1.0
-			var yaw := rad_to_deg(atan2(-t.y, t.x))
-			var m := 1.0 / Config.WORLD_SCALE   # 1 metre in raw units
-			var w: Vector2 = pt + n * side * 3.5 * m
-			items.append([w.x, w.y, Vector3(5.0, 1.3, 0.7), yaw])
-			var c1: Vector2 = pt - n * side * 3.0 * m + t * 3.0 * m
-			items.append([c1.x, c1.y, Vector3(1.6, 1.6, 1.6), yaw + 20.0])
-			var c2: Vector2 = pt - n * side * 4.5 * m - t * 2.0 * m
-			items.append([c2.x, c2.y, Vector3(1.6, 1.0, 1.6), yaw - 15.0])
-		s += step
-		k += 1
-	return items
-
-func _add_cover() -> void:
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.62, 0.55, 0.45)
-	mat.roughness = 0.9
-	var items := _cover_items()
-	var mm := MultiMesh.new()
-	mm.transform_format = MultiMesh.TRANSFORM_3D
-	var bm := BoxMesh.new()
-	bm.size = Vector3.ONE
-	bm.material = mat
-	mm.mesh = bm
-	mm.instance_count = items.size()
-	var cov := MultiMeshInstance3D.new()   # one draw call for all cover
-	cov.name = "Cover"
-	cov.multimesh = mm
-	add_child(cov)
-	for i in items.size():
-		var c: Array = items[i]
-		var sz: Vector3 = c[2]
-		var p := Vector3(c[0], 0, c[1]) * Config.WORLD_SCALE
-		p.y = sz.y * 0.5 - 0.02   # street level is y=0
-		var bas := Basis(Vector3.UP, deg_to_rad(c[3]))
-		mm.set_instance_transform(i, Transform3D(bas * Basis.from_scale(sz), p))
-		var cs := CollisionShape3D.new()
-		var bx := BoxShape3D.new()
-		bx.size = sz
-		cs.shape = bx
-		cs.transform = Transform3D(bas, p)
-		body.add_child(cs)
-	stats["cover"] = items.size() / 3
 
 func ground_y(world_xz: Vector3) -> float:
 	var space := get_world_3d().direct_space_state
