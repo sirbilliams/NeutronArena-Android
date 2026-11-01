@@ -4,6 +4,7 @@ extends Control
 ## Gamepad: d-pad/stick up-down = row, left-right = change value (or press A on a slot), A on a class = preset, A on CONFIRM = send.
 ## Emits `confirmed(loadout)`; the owner of the menu decides what to do with it.
 signal confirmed(loadout: Dictionary)
+signal team_switch_requested
 
 var loadout := Loadout.default_loadout()
 var team := 0   ## set by the owner; only changes display names
@@ -72,6 +73,12 @@ func _ready() -> void:
 	_confirm.add_theme_font_size_override("font_size", 24)
 	_confirm.pressed.connect(func(): confirmed.emit(loadout.duplicate()))
 	box.add_child(_confirm)
+	var sw := Button.new()
+	sw.text = "SWITCH TEAM"
+	sw.custom_minimum_size = Vector2(0, 46)
+	sw.add_theme_font_size_override("font_size", 20)
+	sw.pressed.connect(func(): team_switch_requested.emit())
+	box.add_child(sw)
 	_refresh()
 
 func set_loadout(lo: Dictionary) -> void:

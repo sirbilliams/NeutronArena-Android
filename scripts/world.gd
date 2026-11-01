@@ -53,16 +53,101 @@ func start_server() -> void:
 	for id in multiplayer.get_peers():
 		_srv_peer_connected(id)
 
+const TEAM_AUTO := -1
+const SWITCH_COOLDOWN := 10.0   # stops team-switching as a free heal/respawn
+const TEAM_CAP := 5
+signal team_refused(msg: String)
+
 func _srv_peer_connected(id: int) -> void:
 	if not multiplayer.is_server() or info.has(id):
 		return
 	if not ready_for_peers:
 		return  # handled when start_server finishes
+	# Players choose a team (request_team). Test runs without --manual_team keep the old auto-join.
+	if Config.test_mode and not OS.get_cmdline_user_args().has("--manual_team"):
+		_srv_join(id, TEAM_AUTO)
+
+func _team_counts(skip := -1) -> Array:
 	var counts := [0, 0]
 	for i in info:
-		counts[info[i].team] += 1
-	var team: int = Config.TEAM_JIMMY if counts[0] <= counts[1] else Config.TEAM_NEGATRON
-	info[id] = {"team": team, "hp": Config.MAX_HP, "alive": true, "kills": 0, "deaths": 0, "last_fire": -10.0, "loadout": Loadout.default_loadout(), "pending": {}, "confirmed": false, "max_hp": Config.MAX_HP, "st": {}, "shield_hp": 0, "ult_charge": 0, "gadget_ready": 0.0, "ram_cd": {}}
+		if i != skip:
+			counts[info[i].team] += 1
+	return counts
+
+## Pure rule: returns {team, msg}; team == -1 means refused (both full). Auto = smaller team (Jimmy on ties).
+static func resolve_team(choice: int, counts: Array) -> Dictionary:
+	if choice != 0 and choice != 1:
+		choice = 0 if counts[0] <= counts[1] else 1
+		if counts[choice] >= TEAM_CAP:
+			choice = 1 - choice
+		if counts[choice] >= TEAM_CAP:
+			return {"team": -1, "msg": "Both teams are full."}
+		return {"team": choice, "msg": ""}
+	if counts[choice] < TEAM_CAP:
+		return {"team": choice, "msg": ""}
+	var other := 1 - choice
+	if counts[other] < TEAM_CAP:
+		return {"team": other, "msg": "%s is full - you joined %s." % [Config.TEAM_NAMES[choice], Config.TEAM_NAMES[other]]}
+	return {"team": -1, "msg": "Both teams are full."}
+
+## Owner: ask the server for a team (first join, or a later switch).
+func request_team(choice: int) -> void:
+	if multiplayer.is_server():
+		_srv_team_request(1, choice)
+	else:
+		srv_team.rpc_id(1, choice)
+
+@rpc("any_peer", "reliable")
+func srv_team(choice: int) -> void:
+	if multiplayer.is_server():
+		_srv_team_request(multiplayer.get_remote_sender_id(), choice)
+
+func _srv_team_request(id: int, choice: int) -> void:
+	while not ready_for_peers:
+		await get_tree().physics_frame
+	if id != 1 and not multiplayer.get_peers().has(id):
+		return   # left while we waited: don't spawn a ghost
+	var r := resolve_team(choice, _team_counts(id))
+	if r.team < 0:
+		_team_msg(id, r.msg)
+		return
+	if r.msg != "":
+		_team_msg(id, r.msg)
+	if info.has(id):
+		if info[id].team != r.team:
+			var now := Time.get_ticks_msec() / 1000.0
+			if not info[id].alive:
+				_team_msg(id, "You can switch teams after you respawn.")
+			elif now - info[id].get("last_switch", -100.0) < SWITCH_COOLDOWN:
+				_team_msg(id, "Wait a few seconds before switching again.")
+			else:
+				info[id].last_switch = now
+				_srv_switch_team(id, r.team)
+	else:
+		_srv_join(id, r.team)
+
+func _team_msg(id: int, msg: String) -> void:
+	if id == 1:
+		team_refused.emit(msg)
+	else:
+		c_team_msg.rpc_id(id, msg)
+
+@rpc("authority", "reliable")
+func c_team_msg(msg: String) -> void:
+	team_refused.emit(msg)
+
+func _new_info(team: int) -> Dictionary:
+	return {"team": team, "hp": Config.MAX_HP, "alive": true, "kills": 0, "deaths": 0, "last_fire": -10.0, "loadout": Loadout.default_loadout(), "pending": {}, "confirmed": false, "max_hp": Config.MAX_HP, "st": {}, "shield_hp": 0, "ult_charge": 0, "gadget_ready": 0.0, "ram_cd": {}}
+
+func _srv_join(id: int, choice: int) -> void:
+	if info.has(id):
+		return
+	var r := resolve_team(choice, _team_counts())
+	if r.team < 0:
+		_team_msg(id, r.msg)
+		return
+	var team: int = r.team
+	info[id] = _new_info(team)
 	var sp := _next_spawn(team)
 	# tell the new peer about everyone already here, then everyone about the new one
 	for i in info:
@@ -79,6 +164,18 @@ func _srv_peer_connected(id: int) -> void:
 	for t in traps:
 		c_trap.rpc_id(id, t.id, t.owner, t.team, t.a, t.b)
 	c_scores.rpc_id(id, team_score, kills, deaths)
+
+## Server: move a joined player to the other team. Kills/deaths/score untouched; the player respawns fresh at the new side.
+func _srv_switch_team(id: int, team: int) -> void:
+	var inf: Dictionary = info[id]
+	inf.team = team
+	inf.st.clear(); inf.shield_hp = 0; inf.ram_cd.clear()
+	inf.hp = inf.max_hp
+	inf.alive = true
+	var sp := _next_spawn(team)
+	c_remove_player.rpc(id)
+	c_add_player.rpc(id, team, sp)
+	c_loadout.rpc(id, Loadout.to_wire(inf.loadout), inf.max_hp)
 
 func _srv_peer_disconnected(id: int) -> void:
 	info.erase(id)
@@ -310,6 +407,7 @@ func c_add_player(id: int, team: int, tr: Transform3D) -> void:
 @rpc("authority", "call_local", "reliable")
 func c_remove_player(id: int) -> void:
 	if players.has(id):
+		players[id].name = "_removed%d" % id   # free the node name for an immediate re-add (team switch)
 		players[id].queue_free()
 		players.erase(id)
 	state_changed.emit()
