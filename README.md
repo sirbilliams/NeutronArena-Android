@@ -10,3 +10,37 @@ Run: `godot --path . ` then Host / Join (IP). CLI: `-- --host`, `-- --join=IP`, 
 Controls: WASD + mouse + LMB, or left stick / right stick / RT (R1), A = jump, Esc frees the mouse.
 Test: `tests/run_net_test.sh` (headless server + client + observer on localhost).
 Screenshots: `tools/vrun.sh res://tools/shots.tscn` (nested virtual KWin, needs a GPU).
+
+## Map (5v5)
+Playable area = the street block at the Candy Bar end of the city (`PLAY_RECTS` in `scripts/arena_level.gd`): Jimmy at the
+Candy Bar, Negatron at the SW corner of the block (124 m straight, ~176 m along the streets). Fence is generated around
+the outline of the rectangles. Level load splits the single Level mesh into a core batch plus far chunks with a visibility range.
+Perf: `tools/vrun.sh res://tools/perf.tscn` (fixed cameras, draw calls / primitives / frame time); probe ground: `res://tools/probe.tscn`.
+
+## Android (AYN Thor, arm64, Compatibility/GLES3 renderer)
+One-time setup (everything under `~`, no sudo; the flatpak sees the whole host):
+```
+# Godot export templates 4.7.2 (android_debug.apk, android_release.apk, android_source.zip, version.txt)
+#   -> ~/.var/app/org.godotengine.Godot/data/godot/export_templates/4.7.2.stable/
+# JDK 17 (Temurin tarball)  -> ~/.local/share/jdk/jdk-17.0.21+9
+# Android SDK cmdline-tools -> ~/Android/Sdk/cmdline-tools/latest, then:
+sdkmanager --sdk_root=$HOME/Android/Sdk "platform-tools" "build-tools;36.1.0" "platforms;android-36"
+# debug keystore (kept outside the repo)
+keytool -genkeypair -keystore ~/.local/share/negatron-arena-keys/debug.keystore -storepass android \
+  -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+# ~/.var/app/org.godotengine.Godot/config/godot/editor_settings-4.7.tres:
+#   export/android/java_sdk_path, export/android/android_sdk_path, export/android/debug_keystore(_user/_pass)
+```
+Build (headless, output outside the repo):
+```
+flatpak run org.godotengine.Godot --headless --path . --export-debug "Android Thor" ~/Projects/arena-assets/build/negatron-arena-debug.apk
+aapt dump badging ~/Projects/arena-assets/build/negatron-arena-debug.apk | head -3   # build-tools/36.1.0
+apksigner verify --print-certs ~/Projects/arena-assets/build/negatron-arena-debug.apk
+```
+Install: `adb install -r negatron-arena-debug.apk` (or copy the apk to the Thor and open it).
+
+Game files on the Thor: copy your exported files to `/sdcard/NegatronArena/` keeping the layout
+(`levels/level5c.glb`, `jimmy.glb`, `nummey.glb`, `nummey_villain.glb`), e.g.
+`adb push ~/Projects/arena-assets/levels ~/Projects/arena-assets/*.glb /sdcard/NegatronArena/` (push into the `levels` dir by hand if adb flattens it).
+On first start the app asks for "All files access"; if the assets are missing it shows the folder to copy to and a re-check button.
+Also searched: `/sdcard/Android/data/com.negatronarena.game/files/NegatronArena` (needs no permission when pushed with adb).
