@@ -11,3 +11,11 @@ native/godot-cpp/
 native/build-*/
 addons/naimport/bin/
 *.iso
+addons/sharedimport/bin/
+android/build/
+android/.build_version
+android/plugins/sharedimport/build/
+android/plugins/sharedimport/.gradle/
+android/plugins/sharedimport/gradle/
+android/plugins/sharedimport/gradlew*
+android/plugins/sharedimport/local.properties

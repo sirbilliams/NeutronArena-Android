@@ -1,0 +1,20 @@
+// Godot v2 Android plugin "SharedImport": copies the game files out of the sirbilliams port apps (GameFilesProvider).
+// Build with tools/build_android_plugin.sh (needs the Godot Android build template installed: tools/setup_android_build.sh).
+plugins {
+    id 'com.android.library' version '8.6.1'
+}
+
+android {
+    namespace 'com.negatronarena.sharedimport'
+    compileSdk 36
+    defaultConfig { minSdk 24 }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    // the engine's Java side, from the installed build template (not bundled into the AAR)
+    compileOnly fileTree(dir: "${rootDir}/../../build/libs/release", include: ['godot-lib*.aar'])
+}
