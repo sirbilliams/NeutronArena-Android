@@ -19,7 +19,7 @@ const GADGETS := {
 const MOVEMENTS := {
 	&"none": {"name": "Heavy Plating", "desc": "No movement ability. +50 HP.", "hp_bonus": 50},
 	&"sprint": {"name": "Sprint", "desc": "Hold to run faster.", "speed_mult": 1.6},
-	&"jetpack": {"name": "Jetpack", "desc": "Hold to fly. Fuel bar.", "fuel": 100.0, "drain": 45.0, "regen": 30.0, "thrust": 30.0, "max_up": 7.0},
+	&"jetpack": {"name": "Jetpack", "desc": "Hold to fly. Fuel bar.", "fuel": 100.0, "drain": 25.0, "regen": 30.0, "thrust": 30.0, "max_up": 7.0},
 	&"goof_boots": {"name": "Goof Boots", "desc": "Double jump + glide (hold jump).", "extra_jumps": 1, "glide_fall": 2.5},
 	&"grapple": {"name": "Grappling Hook", "desc": "Pull yourself to the surface you aim at.", "range": 40.0, "speed": 26.0, "cooldown": 2.5, "max_time": 1.5},
 	&"bubble_float": {"name": "Bubble Float", "desc": "Hold to hover slowly down.", "fuel": 100.0, "drain": 30.0, "regen": 25.0, "fall": 1.2},
