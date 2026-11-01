@@ -118,3 +118,63 @@ static func translucent(n: Node, a: float) -> void:
 			sm.albedo_color = Color(sm.albedo_color.r, sm.albedo_color.g, sm.albedo_color.b, a)
 			sm.cull_mode = BaseMaterial3D.CULL_DISABLED
 			mi.set_surface_override_material(i, sm)
+
+static var _burst_mesh: SphereMesh
+static var _burst_mat: StandardMaterial3D
+
+## One-shot GPU particle burst (small counts, no custom shaders). colors: Array of Color, picked per particle through a random-initial-colour ramp. Frees itself.
+static func burst(parent: Node, pos: Vector3, colors: Array, count: int, speed: float, size: float, life: float, gravity := 3.0) -> GPUParticles3D:
+	if parent == null or not parent.is_inside_tree() or DisplayServer.get_name() == "headless":
+		return null
+	if _burst_mesh == null:
+		_burst_mesh = SphereMesh.new()
+		_burst_mesh.radial_segments = 6
+		_burst_mesh.rings = 3
+		_burst_mesh.radius = 0.5
+		_burst_mesh.height = 1.0
+		_burst_mat = StandardMaterial3D.new()
+		_burst_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		_burst_mat.vertex_color_use_as_albedo = true
+		_burst_mesh.material = _burst_mat
+	var g := Gradient.new()
+	var offs := PackedFloat32Array()
+	var cols := PackedColorArray()
+	for i in colors.size():
+		offs.append(float(i) / maxf(colors.size() - 1, 1))
+		cols.append(colors[i])
+	g.offsets = offs
+	g.colors = cols
+	var gt := GradientTexture1D.new()
+	gt.gradient = g
+	var pm := ParticleProcessMaterial.new()
+	pm.direction = Vector3.UP
+	pm.spread = 180.0
+	pm.initial_velocity_min = speed * 0.4
+	pm.initial_velocity_max = speed
+	pm.gravity = Vector3(0, -gravity, 0)
+	pm.scale_min = size * 0.6
+	pm.scale_max = size * 1.4
+	pm.scale_curve = _shrink_curve()
+	pm.color_initial_ramp = gt
+	var p := GPUParticles3D.new()
+	p.process_material = pm
+	p.draw_pass_1 = _burst_mesh
+	p.amount = count
+	p.lifetime = life
+	p.one_shot = true
+	p.explosiveness = 1.0
+	p.emitting = true
+	p.local_coords = false
+	p.visibility_aabb = AABB(Vector3(-4, -4, -4), Vector3(8, 8, 8))
+	parent.add_child(p)
+	p.global_position = pos
+	parent.get_tree().create_timer(life + 0.3).timeout.connect(p.queue_free)
+	return p
+
+static func _shrink_curve() -> CurveTexture:
+	var c := Curve.new()
+	c.add_point(Vector2(0, 1))
+	c.add_point(Vector2(1, 0))
+	var ct := CurveTexture.new()
+	ct.curve = c
+	return ct

@@ -69,9 +69,11 @@ func _physics_process(delta: float) -> void:
 	if authoritative:
 		var victim: int = world.bubble_test_players(from, to, weapon.projectile_radius, shooter, team)
 		if victim != 0:
-			world.srv_hit(victim, shooter, dmg, weapon)
+			world.srv_hit(victim, shooter, dmg, weapon, int(String(name).substr(1)), to)
 			queue_free()
 			return
 	position = to
 	if hit_world:
+		var c: Color = Config.TEAM_COLORS[team]
+		Fx.burst(get_parent(), to, [Color(c.r, c.g, c.b), Color.WHITE], 8, 2.2, 0.05, 0.35, 2.0)   # bubble pop
 		queue_free()
