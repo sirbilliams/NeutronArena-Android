@@ -17,6 +17,7 @@ var _stage_lbl: Label
 var _stage_bar: ProgressBar
 var _all_bar: ProgressBar
 var _prog_box: VBoxContainer
+var _cancel_btn: Button
 var _imp: NaImporter
 var _thread: Thread
 var _result := {}
@@ -45,6 +46,8 @@ func _ready() -> void:
 	_stage_lbl = Label.new(); _prog_box.add_child(_stage_lbl)
 	_stage_bar = ProgressBar.new(); _stage_bar.custom_minimum_size = Vector2(0, 26); _stage_bar.max_value = 1.0; _stage_bar.step = 0.001; _prog_box.add_child(_stage_bar)
 	_all_bar = ProgressBar.new(); _all_bar.custom_minimum_size = Vector2(0, 26); _all_bar.max_value = 1.0; _all_bar.step = 0.001; _prog_box.add_child(_all_bar)
+	_cancel_btn = Button.new(); _cancel_btn.text = "Cancel import"; _cancel_btn.custom_minimum_size = Vector2(0, 56)
+	_cancel_btn.pressed.connect(func(): _imp.cancel()); _prog_box.add_child(_cancel_btn)
 	_err = Label.new(); _err.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART; _err.add_theme_color_override("font_color", Color(1, 0.45, 0.4)); box.add_child(_err)
 	if _can_go_back:
 		_back_btn = Button.new(); _back_btn.text = "Back"; _back_btn.custom_minimum_size = Vector2(0, 56)
@@ -113,6 +116,8 @@ func _worker(n2: String, n1: String, out: String, cache: String) -> void:
 func _set_enabled(on: bool) -> void:
 	for e in _edits: e.editable = on
 	for c in find_children("*", "Button", true, false): (c as Button).disabled = not on
+	_cancel_btn.disabled = on
+	if not on: _cancel_btn.grab_focus()
 	if on: _import_btn.disabled = not _ok[0]
 
 func _process(_d: float) -> void:
