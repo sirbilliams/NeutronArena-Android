@@ -9,6 +9,9 @@ var banner: Label
 var cross: Label
 var kd_label: Label
 var gear_label: Label
+var item_row: HBoxContainer   # L1/R1 item selector (bottom right)
+var item_panels: Array[PanelContainer] = []
+var item_labels: Array[Label] = []
 var feedback: Feedback
 var fuel_bar: ProgressBar
 var ult_bar: ProgressBar
@@ -58,6 +61,7 @@ func _ready() -> void:
 	gear_label.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
 	gear_label.position = Vector2(30, -140)
 	add_child(gear_label)
+	_build_item_row()
 	fuel_bar = ProgressBar.new()
 	fuel_bar.custom_minimum_size = Vector2(260, 12)
 	fuel_bar.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
@@ -139,8 +143,9 @@ func _process(_d: float) -> void:
 		fuel_bar.max_value = maxf(fmax, 1.0)
 		fuel_bar.value = me.fuel
 		var gtxt := "READY" if me.gadget_cd <= 0.0 else "%.1fs" % me.gadget_cd
-		var utxt := "ACTIVE %.1fs" % me.status.get("ult", 0.0) if me.has_status("ult") else ("READY (F / LB+RB)" if me.ult_charge >= cost else "%d%%" % int(100.0 * me.ult_charge / cost))
-		gear_label.text = "%s | Gadget [Q/LB] %s: %s | Move [Shift/RB] %s | Ult %s: %s%s" % [me.weapon.display_name, me.gadget.display_name, gtxt, me.movement.display_name, me.ultimate.name_for(me.team), utxt, ("  SHIELD %d" % int(me.status_val.get("shield", 0)) if me.has_status("shield") else "")]
+		var utxt := "ACTIVE %.1fs" % me.status.get("ult", 0.0) if me.has_status("ult") else ("READY" if me.ult_charge >= cost else "%d%%" % int(100.0 * me.ult_charge / cost))
+		_update_items(me, gtxt, utxt)
+		gear_label.text = "L1/R1 item, R2 fire | Gadget [Q/Y] | Move [Shift/L3/X] %s | Ult [F/B]%s" % [me.movement.display_name, ("  SHIELD %d" % int(me.status_val.get("shield", 0)) if me.has_status("shield") else "")]
 		kd_label.text = "%s   kills %d  deaths %d" % [Config.TEAM_NAMES[me.team], world.kills.get(me.peer_id, 0), world.deaths.get(me.peer_id, 0)]
 		cross.visible = me.alive and not world.match_over
 		if world.match_over:
@@ -149,6 +154,36 @@ func _process(_d: float) -> void:
 			banner.text = "Respawning..."
 		else:
 			banner.text = ""
+
+func _build_item_row() -> void:
+	item_row = HBoxContainer.new()
+	item_row.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	item_row.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	item_row.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	item_row.position = Vector2(-30, -60)
+	item_row.add_theme_constant_override("separation", 8)
+	add_child(item_row)
+	for i in 3:
+		var pc := PanelContainer.new()
+		var l := Label.new()
+		l.theme_type_variation = &"HudLabel"
+		pc.add_child(l)
+		item_row.add_child(pc)
+		item_panels.append(pc)
+		item_labels.append(l)
+
+## Highlights the item L1/R1 selected (HudPanel box + brackets), dims the others. Text is the item name (+ cooldown / ultimate charge).
+func _update_items(me: Player, gtxt: String, utxt: String) -> void:
+	var items := me.item_list()
+	var sel := clampi(me.sel_item, 0, items.size() - 1)
+	var extra := ["", gtxt, utxt]
+	for i in item_labels.size():
+		var on := i == sel
+		item_panels[i].theme_type_variation = &"HudPanel" if on else &""
+		item_panels[i].modulate.a = 1.0 if on else 0.55
+		var t: String = "%s %s" % [items[i].name, extra[i]] if extra[i] != "" else items[i].name
+		item_labels[i].text = ("[ %s ]" % t) if on else t
+	item_row.visible = me.alive and not world.match_over
 
 func _counts() -> Array:
 	var c := [0, 0]

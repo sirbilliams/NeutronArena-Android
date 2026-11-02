@@ -22,6 +22,9 @@ var bots_enabled := true     # host option: fill both teams to 5 with bots
 var bot_difficulty := "normal"   # easy / normal / hard
 var last_loadout := {}       # last confirmed loadout (Quick Play reuses it)
 var theme_id: StringName = UiTheme.DEFAULT   # menu/HUD theme (scripts/ui_theme.gd), saved in settings.cfg [ui]
+var gyro_enabled := false    # Android gyro aim (off by default), saved in settings.cfg [controls]
+var gyro_sens := 1.0         # multiplier on the rad/s rate
+var gyro_invert_y := false
 signal theme_changed(id: StringName)
 
 ## Android: folders searched for the game export (first one that has the files wins). Needs "All files access"
@@ -61,6 +64,9 @@ func _ready() -> void:
 		bot_difficulty = cf.get_value("game", "bot_difficulty", bot_difficulty)
 		last_loadout = cf.get_value("game", "last_loadout", last_loadout)
 		theme_id = StringName(str(cf.get_value("ui", "theme", String(theme_id))))
+		gyro_enabled = bool(cf.get_value("controls", "gyro", gyro_enabled))
+		gyro_sens = clampf(float(cf.get_value("controls", "gyro_sens", gyro_sens)), 0.2, 3.0)
+		gyro_invert_y = bool(cf.get_value("controls", "gyro_invert_y", gyro_invert_y))
 	if not UiTheme.valid(theme_id):
 		theme_id = UiTheme.DEFAULT
 	UiTheme.apply(theme_id)
@@ -86,6 +92,9 @@ func save_settings() -> void:
 	cf.set_value("game", "bot_difficulty", bot_difficulty)
 	cf.set_value("game", "last_loadout", last_loadout)
 	cf.set_value("ui", "theme", String(theme_id))
+	cf.set_value("controls", "gyro", gyro_enabled)
+	cf.set_value("controls", "gyro_sens", gyro_sens)
+	cf.set_value("controls", "gyro_invert_y", gyro_invert_y)
 	cf.save(SETTINGS)
 
 ## Switch the UI theme live (every Control re-reads the theme) and remember it.
@@ -118,6 +127,10 @@ func asset_path(rel: String) -> String:
 func assets_ok() -> bool:
 	return FileAccess.file_exists(asset_path("levels/level5c.glb")) and FileAccess.file_exists(asset_path("jimmy.glb"))
 
+## Gyro aim only exists on handhelds / phones.
+func gyro_supported() -> bool:
+	return OS.has_feature("android")
+
 func _key(action: String, k: Key) -> void:
 	var e := InputEventKey.new(); e.physical_keycode = k
 	InputMap.action_add_event(action, e)
@@ -131,7 +144,7 @@ func _axis(action: String, a: JoyAxis, v: float) -> void:
 	InputMap.action_add_event(action, e)
 
 func _setup_input() -> void:
-	for a in ["move_left", "move_right", "move_forward", "move_back", "look_left", "look_right", "look_up", "look_down", "jump", "fire", "gadget", "movement", "ultimate", "loadout_menu"]:
+	for a in ["move_left", "move_right", "move_forward", "move_back", "look_left", "look_right", "look_up", "look_down", "jump", "fire", "gadget", "movement", "ultimate", "loadout_menu", "item_prev", "item_next"]:
 		if not InputMap.has_action(a):
 			InputMap.add_action(a, 0.2)
 	_key("move_left", KEY_A); _key("move_right", KEY_D); _key("move_forward", KEY_W); _key("move_back", KEY_S)
@@ -141,9 +154,11 @@ func _setup_input() -> void:
 	_axis("look_left", JOY_AXIS_RIGHT_X, -1.0); _axis("look_right", JOY_AXIS_RIGHT_X, 1.0)
 	_axis("look_up", JOY_AXIS_RIGHT_Y, -1.0); _axis("look_down", JOY_AXIS_RIGHT_Y, 1.0)
 	_btn("jump", JOY_BUTTON_A)
-	_key("gadget", KEY_Q); _btn("gadget", JOY_BUTTON_LEFT_SHOULDER)
-	_key("movement", KEY_SHIFT); _btn("movement", JOY_BUTTON_RIGHT_SHOULDER)
-	_key("ultimate", KEY_F)   # gamepad: LB+RB together (handled in Player)
+	_key("gadget", KEY_Q); _btn("gadget", JOY_BUTTON_Y)
+	_key("item_prev", KEY_Z); _btn("item_prev", JOY_BUTTON_LEFT_SHOULDER)   # L1 / R1: cycle the equipped items, R2 fires the selected one
+	_key("item_next", KEY_E); _btn("item_next", JOY_BUTTON_RIGHT_SHOULDER)
+	_key("movement", KEY_SHIFT); _btn("movement", JOY_BUTTON_LEFT_STICK); _btn("movement", JOY_BUTTON_X)
+	_key("ultimate", KEY_F); _btn("ultimate", JOY_BUTTON_B)
 	_key("loadout_menu", KEY_L); _btn("loadout_menu", JOY_BUTTON_BACK)
 	_axis("fire", JOY_AXIS_TRIGGER_RIGHT, 1.0)
 	var m := InputEventMouseButton.new(); m.button_index = MOUSE_BUTTON_LEFT

@@ -61,8 +61,6 @@ var t_flags := 0
 var t_aux := Vector3.ZERO
 var charge := 0.0              # owner: weapon charge 0..1
 var input_blocked := false     # loadout menu open
-var gadget_delay := -1.0
-var pad_combo_prev := false
 var base_scale := 1.0
 var gear: Node3D
 var fx_jet: Node3D
@@ -384,6 +382,8 @@ func _process(delta: float) -> void:
 	if is_local and cam_pivot:
 		if not Config.test_mode and alive and not input_blocked and world != null and not world.match_over:
 			_look_input(delta)
+			if Config.gyro_supported():
+				apply_gyro(Input.get_gyroscope(), delta)
 		_update_cam(delta)
 
 func _input(event: InputEvent) -> void:
@@ -435,27 +435,58 @@ func speed_mult(sprinting: bool) -> float:
 		m *= ultimate.f("speed_mult", 1.0)
 	return m
 
-func _pad_combo() -> bool:
-	for d in Input.get_connected_joypads():
-		if Input.is_joy_button_pressed(d, JOY_BUTTON_LEFT_SHOULDER) and Input.is_joy_button_pressed(d, JOY_BUTTON_RIGHT_SHOULDER):
-			return true
+## Equipped items cycled with L1 / R1 (item_prev / item_next): weapon, gadget, ultimate. R2 / LMB (fire) uses the selected one.
+const ITEM_WEAPON := &"weapon"
+const ITEM_GADGET := &"gadget"
+const ITEM_ULT := &"ultimate"
+var sel_item := 0              # owner: index into item_list()
+
+func item_list() -> Array:
+	return [
+		{"kind": ITEM_WEAPON, "name": weapon.display_name},
+		{"kind": ITEM_GADGET, "name": gadget.display_name},
+		{"kind": ITEM_ULT, "name": ultimate.name_for(team)},
+	]
+
+func selected_kind() -> StringName:
+	return item_list()[clampi(sel_item, 0, 2)].kind
+
+func cycle_item(d: int) -> void:
+	sel_item = posmod(sel_item + d, item_list().size())
+	charge = 0.0
+
+## Fire button for the selected item. Returns true while the weapon should keep firing; gadget / ultimate trigger on the press edge.
+## Cooldown / charge are checked locally and again by the server (World._srv_gadget / _srv_ultimate).
+func item_fire(pressed: bool, held: bool) -> bool:
+	match selected_kind():
+		ITEM_WEAPON:
+			return held
+		ITEM_GADGET:
+			if pressed:
+				try_gadget()
+		ITEM_ULT:
+			if pressed:
+				try_ultimate()
 	return false
 
-## Gadget / ultimate button handling (owner only).
-func _gear_input(delta: float) -> void:
-	var combo := _pad_combo()
-	if Input.is_action_just_pressed("ultimate") or (combo and not pad_combo_prev):
-		gadget_delay = -1.0
+## Gyro aim (Android): adds the angular rate g (rad/s, device axes) to the camera. No-op when the setting is off.
+func apply_gyro(g: Vector3, delta: float) -> void:
+	if not Config.gyro_enabled:
+		return
+	var k := Config.gyro_sens * delta
+	cam_yaw += g.y * k
+	cam_pitch = clampf(cam_pitch + g.x * k * (-1.0 if Config.gyro_invert_y else 1.0), -1.3, 1.0)
+
+## Direct gadget / ultimate buttons (Q / Y, F / B), owner only. Independent of the selected item.
+func _gear_input(_delta: float) -> void:
+	if Input.is_action_just_pressed("ultimate"):
 		try_ultimate()
-	elif Input.is_action_just_pressed("gadget"):
-		gadget_delay = 0.07   # lets LB+RB register as the ultimate instead
-	if gadget_delay >= 0.0:
-		gadget_delay -= delta
-		if gadget_delay < 0.0:
-			gadget_delay = -1.0
-			if not combo:
-				try_gadget()
-	pad_combo_prev = combo
+	if Input.is_action_just_pressed("gadget"):
+		try_gadget()
+	if Input.is_action_just_pressed("item_prev"):
+		cycle_item(-1)
+	if Input.is_action_just_pressed("item_next"):
+		cycle_item(1)
 
 func try_gadget(dir_override := Vector3.ZERO) -> void:
 	if not alive or gadget_cd > 0.0 or has_status("phase"):
@@ -494,12 +525,12 @@ func _local_step(delta: float) -> void:
 		test_jump = false
 	elif live_input:
 		mv = Input.get_vector("move_left", "move_right", "move_forward", "move_back")
-		firing = Input.is_action_pressed("fire")
+		_gear_input(delta)
+		firing = item_fire(Input.is_action_just_pressed("fire"), Input.is_action_pressed("fire"))
 		jump_pressed = Input.is_action_just_pressed("jump")
 		jump_held = Input.is_action_pressed("jump")
 		mvt_pressed = Input.is_action_just_pressed("movement")
 		mvt_held = Input.is_action_pressed("movement")
-		_gear_input(delta)
 	if not alive:
 		mv = Vector2.ZERO
 	var flags := 0
