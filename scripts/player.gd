@@ -117,7 +117,7 @@ var anim_fall := ""
 var anim_fly := ""
 var vy_est := 0.0
 var _last_y := 0.0
-var jp_attach: BoneAttachment3D
+var jp_attach: Node3D   # BoneAttachment3D on skinned characters, plain Node3D on the model for Libby
 var air_time := 0.0
 var cur_anim := ""
 var model_yaw := 0.0
@@ -222,12 +222,12 @@ func _build_model() -> void:
 			scooter_anim = scooter_model.get_node_or_null("AnimationPlayer") as AnimationPlayer
 			if scooter_anim and scooter_anim.has_animation("nummeyscooter"):
 				scooter_anim.get_animation("nummeyscooter").loop_mode = Animation.LOOP_LINEAR
-	if team == Config.TEAM_JIMMY:
-		jim_scooter = Assets.try_scene("scooter.glb") as Node3D
-		if jim_scooter:
-			jim_scooter.scale = Vector3.ONE * s
-			jim_scooter.visible = false
-			add_child(jim_scooter)
+	# every character can ride Goddard's scooter; only Negatron himself uses his own (clones stay themselves, see _neg_rides)
+	jim_scooter = Assets.try_scene("scooter.glb") as Node3D
+	if jim_scooter:
+		jim_scooter.scale = Vector3.ONE * s
+		jim_scooter.visible = false
+		add_child(jim_scooter)
 	_play(anim_idle)
 
 ## Builds `model` for the requested roster character (Jimmy / Negatron: their own glbs; the rest: CharModel). Falls back to the team default
@@ -305,6 +305,13 @@ func _swap_model() -> void:
 	_make_character_model()
 	lift_cur = FootTable.lift(anim_idle) if anim else 0.0
 	_play(anim_idle)
+
+func _is_negatron() -> bool:
+	return model_char == &"negatron"
+
+## True when the rider is Negatron himself (swaps to nummey_scooter.glb); the evil clones ride Goddard's scooter as themselves.
+func _neg_rides() -> bool:
+	return scooter_model != null and _is_negatron()
 
 func _play(n: String, spd := 1.0, blend := 0.18) -> void:
 	if anim == null or not anim.has_animation(n):
@@ -813,9 +820,9 @@ func _animate() -> void:
 	var show_body := alive or dying > 0.0
 	if model:
 		model.rotation.y = model_yaw + MODEL_YAW + tw_cur
-		var neg_sc := scooter_model != null and ult_is(&"goddard_scooter")
+		var neg_sc := _neg_rides() and ult_is(&"goddard_scooter")
 		if jim_scooter:
-			jim_scooter.visible = alive and ult_is(&"goddard_scooter")
+			jim_scooter.visible = alive and ult_is(&"goddard_scooter") and not _neg_rides()
 			jim_scooter.rotation.y = model_yaw + MODEL_YAW - PI / 2.0   # scooter.glb length axis is Z, jimmybase faces X natively
 			jim_scooter.scale = Vector3.ONE * Config.WORLD_SCALE * cur_shrink
 		model.visible = show_body and not ult_is(&"rocket_ship") and not neg_sc
@@ -835,7 +842,7 @@ func _animate() -> void:
 	_update_gun()
 	if label:
 		label.visible = alive and (not is_local or is_bot)
-	if jim_scooter != null and ult_is(&"goddard_scooter") and anim and anim_scooter != "" and anim.has_animation(anim_scooter):
+	if jim_scooter != null and not _neg_rides() and ult_is(&"goddard_scooter") and anim and anim_scooter != "" and anim.has_animation(anim_scooter):
 		_play(anim_scooter if h_speed > 0.4 else anim_scooter_stop, 1.0)
 	else:
 		if not is_local:
@@ -854,11 +861,11 @@ func _animate() -> void:
 			&"air":
 				var vy := velocity.y if is_local else vy_est
 				var fl := eff_flags()
-				if (fl & 7) != 0 and anim_fly != "" and anim.has_animation(anim_fly):
+				if (fl & 7) != 0 and anim_fly != "" and anim_fly != anim_run and anim.has_animation(anim_fly):
 					_play(anim_fly, 1.0, 0.15)   # jetpack thrust / glide / bubble float
-				elif vy > -9.0 and anim.has_animation(anim_jump):
+				elif vy > -9.0 and anim_jump != anim_run and anim.has_animation(anim_jump):
 					_play(anim_jump, 1.0, 0.1)    # the jump clip covers the whole short arc
-				elif vy <= -9.0 and anim.has_animation(anim_fall):
+				elif vy <= -9.0 and anim_fall != anim_run and anim.has_animation(anim_fall):
 					_play(anim_fall, 1.0, 0.15)   # long fall
 				elif cur_anim == anim_run:
 					anim.speed_scale = 0.0   # fallback: hold a run frame
@@ -1009,7 +1016,7 @@ func _update_fx() -> void:
 				var sn := fx_sprint.get_child(j) as Node3D
 				sn.position.z = 0.9 + fposmod(ts * 5.0 + j * 0.31, 1.2)
 	if fx_ship:
-		fx_ship.visible = alive and (ult_is(&"rocket_ship") or (ult_is(&"goddard_scooter") and ((team == Config.TEAM_JIMMY and jim_scooter == null) or (team == Config.TEAM_NEGATRON and scooter_model == null))))
+		fx_ship.visible = alive and (ult_is(&"rocket_ship") or (ult_is(&"goddard_scooter") and ((not _is_negatron() and jim_scooter == null) or (_is_negatron() and scooter_model == null))))
 	if fx_drone:
 		fx_drone.visible = alive and has_status("drone")
 		fx_drone.position = Vector3(cos(Time.get_ticks_msec() / 400.0) * 0.8, 2.0 + sin(Time.get_ticks_msec() / 300.0) * 0.1, sin(Time.get_ticks_msec() / 400.0) * 0.8)
@@ -1185,6 +1192,7 @@ func _build_boots() -> void:
 		var l := model.find_children("*", "Skeleton3D", true, false)
 		if l.size() > 0:
 			sk = l[0] as Skeleton3D
+	var gear_cfg := Characters.gear(model_char)
 	fx_boots = Node3D.new()   # bookkeeping node (visibility is applied to the attachments)
 	gear.add_child(fx_boots)
 	if sk == null:
@@ -1199,10 +1207,10 @@ func _build_boots() -> void:
 		boot_ba.append(ba)
 		var h := Node3D.new()
 		# foot bone: +X down the shin, -Z toward the toe; boot glb: +Y up, +Z forward
-		h.transform = Transform3D(Basis(Vector3(0, -1, 0), Vector3(-1, 0, 0), Vector3(0, 0, -1)), BOOT_OFF)
+		h.transform = Transform3D(Basis(Vector3(0, -1, 0), Vector3(-1, 0, 0), Vector3(0, 0, -1)), gear_cfg.get("boot_off", BOOT_OFF))
 		var b := Fx.model("ase/n2/goofbootfly.glb")
 		if b:
-			Fx.fit(b, BOOT_SIZE)
+			Fx.fit(b, gear_cfg.get("boot_size", BOOT_SIZE))
 			h.add_child(b)
 		else:
 			h.add_child(Fx.box(Vector3(10, 12, 24), Color(0.9, 0.8, 0.2)))
@@ -1215,7 +1223,9 @@ func _build_jetpack() -> void:
 		if l.size() > 0:
 			sk = l[0] as Skeleton3D
 	var jp := Assets.try_scene("jetpack.glb") as Node3D
-	if sk == null or sk.find_bone("Bip01 Spine") < 0 or jp == null:
+	var gear_cfg := Characters.gear(model_char)
+	var on_model := sk == null and model != null and gear_cfg.has("jet")   # Libby: no skeleton, pack sits on the model
+	if jp == null or (not on_model and (sk == null or sk.find_bone("Bip01 Spine") < 0)):
 		# art missing: old floating box fallback
 		var holder := Node3D.new()
 		holder.position = Vector3(0, 0.95, 0.28)
@@ -1227,27 +1237,33 @@ func _build_jetpack() -> void:
 		fx_jet.visible = false
 		gear.add_child(fx_jet)
 		return
-	jp_attach = BoneAttachment3D.new()
-	jp_attach.bone_name = "Bip01 Spine"
-	sk.add_child(jp_attach)
+	if on_model:
+		jp_attach = Node3D.new()
+		model.add_child(jp_attach)
+	else:
+		var jba := BoneAttachment3D.new()
+		jba.bone_name = "Bip01 Spine"
+		sk.add_child(jba)
+		jp_attach = jba
 	var holder2 := Node3D.new()
-	holder2.transform = Balance.JETPACK_XF
+	holder2.transform = gear_cfg.get("jet", Balance.JETPACK_XF)
 	holder2.add_child(jp)
 	jp_attach.add_child(holder2)
 	jp_attach.set_meta("jp", true)
 	# flames: bottom corners of the pack (raw units, in the holder's frame)
 	fx_jet = Node3D.new()
 	var bb := Fx.aabb_of(jp)
+	var hs := holder2.transform.basis.get_scale().x   # per-character pack scale: keep the flames at their world size
 	for sy in [0.2, 0.8]:
 		var nozzle := Node3D.new()
 		nozzle.position = Vector3(bb.position.x, bb.position.y + bb.size.y * sy, bb.position.z + bb.size.z * 0.5)   # exhaust end = jp -x
 		var fl := Fx.model("ase/n1/fire.glb")
 		if fl:
-			Fx.fit(fl, 1.0 / maxf(base_scale, 0.0001))
+			Fx.fit(fl, 1.0 / maxf(base_scale * hs, 0.0001))
 			fl.rotation.y = PI / 2.0   # point the flame along the pack's -x (down)
 			nozzle.add_child(fl)
 		else:
-			nozzle.add_child(Fx.sphere(0.1 / maxf(base_scale, 0.0001), Color(1.0, 0.6, 0.1, 0.9)))
+			nozzle.add_child(Fx.sphere(0.1 / maxf(base_scale * hs, 0.0001), Color(1.0, 0.6, 0.1, 0.9)))
 		fx_jet.add_child(nozzle)
 	fx_jet.visible = false
 	holder2.add_child(fx_jet)

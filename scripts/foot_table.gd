@@ -20,7 +20,7 @@ const DATA := {
 	"nummeyrun": {"lift": 0.4337, "gs": 2.83},
 	# roster characters (tools/charcal.gd, at CharModel k = 1; Player multiplies lift and gs by the character factor). Libby: vertex animation has no planted foot, gs is a stride estimate.
 	"carl_walk": {"lift": 0.0445, "gs": 1.21},
-	"carl_run": {"lift": 0.0693, "gs": 6.11},
+	"carl_run": {"lift": 0.5663, "gs": 6.26},
 	"carl_idle": {"lift": -0.0070, "gs": 0.00},
 	"carl_jump": {"lift": 0.5361, "gs": 0.68},
 	"carl_fall": {"lift": 0.7242, "gs": 0.53},
@@ -48,7 +48,7 @@ const DATA := {
 	"libby_run": {"lift": 0.4253, "gs": 2.60},
 }
 ## time inside the run clip used as the held jump / fall pose (legs tucked, both feet off the ground)
-const AIR_T := {"jimmyfullrun": 0.23, "nummeyrun": 0.65, "carl_run": 0.03, "cindy_run": 0.20, "sheen_run": 0.20, "libby_run": 0.4}
+const AIR_T := {"jimmyfullrun": 0.23, "nummeyrun": 0.65, "carl_run": 0.10, "cindy_run": 0.20, "sheen_run": 0.20, "libby_run": 0.4}
 
 static func lift(anim: String) -> float:
 	return DATA.get(anim, {"lift": 0.45}).lift
