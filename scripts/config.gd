@@ -20,6 +20,9 @@ const BEACON_PORT := 7778    # LAN discovery (UDP broadcast, scripts/lan_beacon.
 var beacon_port := BEACON_PORT
 var bots_enabled := true     # host option: fill both teams to 5 with bots
 var bot_difficulty := "normal"   # easy / normal / hard
+var start_mode: StringName = &"tdm"   # host option: first round's mode (tdm / gun_game / ctf / koth / random)
+var start_map := ""          # host option: first round's map ("" = default layout)
+var vote_enabled := true     # host option: map/mode vote between rounds
 var last_loadout := {}       # last confirmed loadout (Quick Play reuses it)
 var theme_id: StringName = UiTheme.DEFAULT   # menu/HUD theme (scripts/ui_theme.gd), saved in settings.cfg [ui]
 signal theme_changed(id: StringName)

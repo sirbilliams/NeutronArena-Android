@@ -18,6 +18,9 @@ func _ready() -> void:
 		elif a.begins_with("--port="): port = int(a.substr(7))
 		elif a.begins_with("--test="): test = a.substr(7)
 		elif a.begins_with("--shot="): shot_path = a.substr(7)
+		elif a.begins_with("--mode="): Config.start_mode = StringName(a.substr(7))
+		elif a.begins_with("--map="): Config.start_map = a.substr(6)
+		elif a == "--novote": Config.vote_enabled = false
 		elif a == "--bots": Config.bots_enabled = true
 		elif a == "--nobots": Config.bots_enabled = false
 		elif a.begins_with("--difficulty="): Config.bot_difficulty = a.substr(13)
@@ -31,6 +34,11 @@ func _ready() -> void:
 			tb.main = self
 			tb.role = test.substr(4)
 			add_child(tb)
+			return
+		if test == "md_flow":
+			var tm = load("res://tests/modes_flow.gd").new()
+			tm.main = self
+			add_child(tm)
 			return
 		var lo_test := test.begins_with("lo_")
 		var t = load("res://scripts/loadout_test.gd" if lo_test else "res://scripts/net_test.gd").new()
@@ -118,6 +126,25 @@ func _build_menu() -> void:
 	diff.selected = ["easy", "normal", "hard"].find(Config.bot_difficulty)
 	diff.item_selected.connect(func(i: int): Config.bot_difficulty = ["easy", "normal", "hard"][i])
 	bots_row.add_child(diff)
+	var mode_row := HBoxContainer.new()
+	box.add_child(mode_row)
+	var mode_l := Label.new(); mode_l.text = "Mode"
+	mode_l.theme_type_variation = &"Subtitle"
+	mode_l.custom_minimum_size = Vector2(90, 0)
+	mode_row.add_child(mode_l)
+	var mode_opt := OptionButton.new()
+	mode_opt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var mode_ids := []
+	for m in Modes.IDS:
+		mode_opt.add_item(Modes.name_of(m)); mode_ids.append(m)
+	mode_opt.add_item("Random"); mode_ids.append(&"random")
+	mode_opt.selected = maxi(mode_ids.find(Config.start_mode), 0)
+	mode_opt.item_selected.connect(func(i: int): Config.start_mode = mode_ids[i])
+	mode_row.add_child(mode_opt)
+	var vote_cb := CheckBox.new(); vote_cb.text = "Map / mode vote between rounds"
+	vote_cb.button_pressed = Config.vote_enabled
+	vote_cb.toggled.connect(func(on: bool): Config.vote_enabled = on)
+	box.add_child(vote_cb)
 	box.add_child(_theme_row())
 	var quit := Button.new(); quit.text = "Quit"
 	quit.theme_type_variation = &"SmallButton"

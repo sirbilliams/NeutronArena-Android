@@ -23,12 +23,18 @@ var first_pending := true
 var char_select: CharacterSelect
 var char_open := false
 var _last_team := -1
+var obj_label: Label      # mode objective line (flags / zone / gun-game weapon)
+var msg_label: Label      # mode feed line (flag taken, captured...)
+var msg_until := 0.0
+var vote_screen: VoteScreen
 
 func _ready() -> void:
 	score_label = Label.new()
 	score_label.theme_type_variation = &"HudScore"
 	score_label.set_anchors_preset(Control.PRESET_CENTER_TOP)
-	score_label.position = Vector2(-180, 10)
+	score_label.custom_minimum_size = Vector2(700, 0)
+	score_label.position = Vector2(-350, 10)
+	score_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	add_child(score_label)
 	hp_bar = ProgressBar.new()
 	hp_bar.theme_type_variation = &"HpBar"
@@ -95,6 +101,37 @@ func _ready() -> void:
 	feedback = Feedback.new()
 	feedback.world = world
 	add_child(feedback)
+	obj_label = Label.new()
+	obj_label.theme_type_variation = &"HudLabel"
+	obj_label.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	obj_label.custom_minimum_size = Vector2(700, 0)
+	obj_label.position = Vector2(-350, 46)
+	obj_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	add_child(obj_label)
+	msg_label = Label.new()
+	msg_label.theme_type_variation = &"HudFeed"
+	msg_label.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	msg_label.custom_minimum_size = Vector2(700, 0)
+	msg_label.position = Vector2(-350, 76)
+	msg_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	add_child(msg_label)
+	world.mode_message.connect(func(t: String):
+		msg_label.text = t
+		msg_until = Time.get_ticks_msec() / 1000.0 + 4.0)
+	var vl := CanvasLayer.new(); vl.layer = 12
+	add_child(vl)
+	vote_screen = VoteScreen.new()
+	vl.add_child(vote_screen)
+	vote_screen.voted.connect(world.request_vote)
+	vote_screen.skipped.connect(world.request_vote_skip)
+	world.vote_opened.connect(func(modes: Array, maps: Array, secs: float):
+		vote_screen.open(modes, maps, secs, multiplayer.is_server())
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE)
+	world.vote_counts_changed.connect(vote_screen.set_counts)
+	world.vote_closed.connect(func():
+		vote_screen.close()
+		if DisplayServer.get_name() != "headless" and not menu_open and not team_open:
+			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED)
 	info_label = Label.new()
 	info_label.theme_type_variation = &"HudLabel"
 	info_label.set_anchors_preset(Control.PRESET_TOP_LEFT)
@@ -104,7 +141,8 @@ func _ready() -> void:
 func _process(_d: float) -> void:
 	if world == null or not multiplayer.has_multiplayer_peer() or multiplayer.multiplayer_peer.get_connection_status() != MultiplayerPeer.CONNECTION_CONNECTED:
 		return
-	score_label.text = "JIMMY %d  -  %d NEGATRON   (first to %d)" % [world.team_score[0], world.team_score[1], Config.WIN_SCORE]
+	score_label.text = world.mode.score_line()
+	msg_label.visible = Time.get_ticks_msec() / 1000.0 < msg_until
 	var me: Player = world.players.get(multiplayer.get_unique_id())
 	info_label.text = "players: %d   %s" % [world.players.size(), "host" if multiplayer.is_server() else "client"]
 	if team_open:
@@ -128,6 +166,7 @@ func _process(_d: float) -> void:
 			_set_menu(true)
 		if me.alive and queued_msg != "" and not menu_open:
 			queued_msg = ""
+		obj_label.text = world.mode.objective_text(me.peer_id, me.team)
 		hp_bar.max_value = me.max_hp
 		hp_bar.value = me.hp
 		var cost := int(me.ultimate.f("cost"))
@@ -140,11 +179,11 @@ func _process(_d: float) -> void:
 		fuel_bar.value = me.fuel
 		var gtxt := "READY" if me.gadget_cd <= 0.0 else "%.1fs" % me.gadget_cd
 		var utxt := "ACTIVE %.1fs" % me.status.get("ult", 0.0) if me.has_status("ult") else ("READY (F / LB+RB)" if me.ult_charge >= cost else "%d%%" % int(100.0 * me.ult_charge / cost))
-		gear_label.text = "%s | Gadget [Q/LB] %s: %s | Move [Shift/RB] %s | Ult %s: %s%s" % [me.weapon.display_name, me.gadget.display_name, gtxt, me.movement.display_name, me.ultimate.name_for(me.team), utxt, ("  SHIELD %d" % int(me.status_val.get("shield", 0)) if me.has_status("shield") else "")]
+		gear_label.text = me.weapon.display_name if not world.mode.gadgets_allowed() else "%s | Gadget [Q/LB] %s: %s | Move [Shift/RB] %s | Ult %s: %s%s" % [me.weapon.display_name, me.gadget.display_name, gtxt, me.movement.display_name, me.ultimate.name_for(me.team), utxt, ("  SHIELD %d" % int(me.status_val.get("shield", 0)) if me.has_status("shield") else "")]
 		kd_label.text = "%s   kills %d  deaths %d" % [Config.TEAM_NAMES[me.team], world.kills.get(me.peer_id, 0), world.deaths.get(me.peer_id, 0)]
 		cross.visible = me.alive and not world.match_over
 		if world.match_over:
-			banner.text = "%s TEAM WINS!" % Config.TEAM_NAMES[world.winner]
+			banner.text = world.winner_text
 		elif not me.alive:
 			banner.text = "Respawning..."
 		else:

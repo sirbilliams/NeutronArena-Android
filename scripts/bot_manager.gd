@@ -15,6 +15,12 @@ var stat_peak_us := 0
 func _ready() -> void:
 	nav = BotNav.new(world.level.layout_name)
 
+## Map changed (World._srv_begin_round): new route for every brain.
+func set_map(layout: String) -> void:
+	nav = BotNav.new(layout)
+	for id in brains:
+		brains[id].nav = nav
+
 func forget(id: int) -> void:
 	brains.erase(id)
 

@@ -55,7 +55,51 @@ var body: StaticBody3D
 var stats := {"chunks": 0, "dropped": 0}
 var layout_name := LAYOUT
 var core_chunk := 0.0       # >0: chunk the play area too (raw units) instead of one batch (tested in tools/perf.gd)
+var fence_shapes: Array = []   # fence CollisionShape3Ds (rebuilt when the map changes)
 var zones := [[], []]       # per team: [{raw: Vector3, dir: Vector2}] most forward first, base zone last
+
+## Switch map (layout) at runtime: zones, fence. Same glb, so no reload.
+func set_layout(n: String) -> void:
+	if n == layout_name or not LAYOUTS.has(n):
+		return
+	layout_name = n
+	_build_zones()
+	if body != null:
+		for c in fence_shapes:
+			if is_instance_valid(c):
+				c.queue_free()
+		fence_shapes.clear()
+		_add_fence()
+
+func map_names() -> Array:
+	return LAYOUTS.keys()
+
+## World position of a team's flag stand: a few metres in front of its spawn base, towards the enemy.
+func flag_home(team: int) -> Vector3:
+	if zones[team].is_empty():
+		_build_zones()
+	var z: Dictionary = zones[team][zones[team].size() - 1]
+	var p := raw_to_world(z.raw) + Vector3(z.dir.x, 0, z.dir.y) * Balance.CTF.flag_dist
+	if is_inside_tree() and body != null:
+		p.y = ground_y(p)
+	return p
+
+## Capture zone of King of the Candy Bar. HOOK: a layout can carry "hill": Vector2 (raw x, z), e.g. a Candy Bar interior later.
+func hill_center() -> Vector3:
+	var L := _layout()
+	var q: Vector2
+	if L.has("hill"):
+		q = L.hill
+	else:
+		var route: Array = L.route
+		var total := 0.0
+		for i in route.size() - 1:
+			total += route[i].distance_to(route[i + 1])
+		q = _route_at(route, total * 0.5)[0]
+	var p := raw_to_world(Vector3(q.x, 0, q.y))
+	if is_inside_tree() and body != null:
+		p.y = ground_y(p)
+	return p
 
 func _layout() -> Dictionary:
 	return LAYOUTS[layout_name]
@@ -301,6 +345,7 @@ func _add_fence() -> void:
 						cs.position = Vector3(mid, cy, off) if pass_x else Vector3(off, cy, mid)
 						cs.name = "fence"
 						body.add_child(cs)
+						fence_shapes.append(cs)
 						boxes += 1
 						run_start = -1
 	print("fence boxes=", boxes)

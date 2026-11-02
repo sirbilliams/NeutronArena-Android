@@ -41,3 +41,10 @@ const SLOTS := [&"primary", &"gadget", &"movement", &"ultimate"]
 const SPRINT_ALL := 1.0
 ## jetpack.glb placement in the spine bone's space (raw model units); tuned from shots (tools/shots_move.gd)
 const JETPACK_XF := Transform3D(Basis(Vector3(1, 0, 0), Vector3(0, 0, -1), Vector3(0, 1, 0)), Vector3(-13.7, 12.0, 1.5))   # jp x (rocket axis, tip +x) -> bone X (up along the spine), jp z -> bone Y (back)
+
+## ---- game modes (scripts/game_mode.gd and mode_*.gd read these)
+## Gun Game ladder, weakest first. Each kill moves up one step, dying to an enemy moves down one; a kill on the last step wins.
+const GUN_LADDER := [&"water_gun", &"baseball", &"bubble_gun", &"burp_gun", &"mega_burp"]
+const CTF := {"capture_limit": 3, "pickup_radius": 2.5, "drop_return": 20.0, "flag_dist": 6.0}
+const KOTH := {"radius": 8.0, "pps": 2.0, "limit": 100}
+const VOTE_SECONDS := 12.0

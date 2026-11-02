@@ -9,11 +9,24 @@ signal player_hurt(id: int, hp: int)
 signal hit_event(victim: int, shooter: int, dmg: int, pos: Vector3, killed: bool)
 signal loadout_changed(id: int)
 signal loadout_pending()
+signal mode_changed()                 # a new round/mode began (peers rebuild objective visuals)
+signal mode_message(text: String)     # feed line: flag taken, captured...
+signal vote_opened(modes: Array, maps: Array, secs: float)
+signal vote_counts_changed(mode_counts: Array, map_counts: Array)
+signal vote_closed()
 
 var level: ArenaLevel
 var players := {}          # peer id -> Player
 var info := {}             # server only: id -> {team, hp, alive, kills, deaths, last_fire}
-var team_score := [0, 0]
+var mode: GameMode = ModeTdm.new()   # current game mode (scripts/game_mode.gd); every peer has the same one
+var team_score: Array:                # the mode's team score (TDM kills, CTF captures, KOTH points)
+	get: return mode.scores
+	set(v): mode.scores = v
+var winner_text := ""
+var voting := false                   # vote screen open (all peers)
+var vote: MapVote                     # server only
+var _mode_sync := 0.0
+var _last_scores := [0, 0]
 var kills := {}            # id -> kills (all peers, display)
 var deaths := {}
 var match_over := false
@@ -38,6 +51,7 @@ func _ready() -> void:
 	players_root = Node3D.new(); players_root.name = "Players"; add_child(players_root)
 	bubbles_root = Node3D.new(); bubbles_root.name = "Bubbles"; add_child(bubbles_root)
 	traps_root = Node3D.new(); traps_root.name = "Traps"; add_child(traps_root)
+	var mv := ModeView.new(); mv.world = self; add_child(mv)
 
 func build() -> bool:
 	if not level.load_level():
@@ -58,6 +72,10 @@ func start_server() -> void:
 	bot_mgr.enabled = Config.bots_enabled
 	bot_mgr.difficulty = Config.bot_difficulty
 	add_child(bot_mgr)
+	var mid: StringName = Config.start_mode
+	if not Modes.valid(mid):
+		mid = Modes.IDS[randi() % Modes.IDS.size()]
+	_srv_begin_round(mid, Config.start_map if ArenaLevel.LAYOUTS.has(Config.start_map) else level.layout_name)
 	_srv_peer_connected(1)
 	for id in multiplayer.get_peers():
 		_srv_peer_connected(id)
@@ -168,6 +186,9 @@ func _srv_join(id: int, choice: int) -> void:
 	info[id] = _new_info(team)
 	var sp := _next_spawn(team)
 	# tell the new peer about everyone already here, then everyone about the new one
+	if id > 1:
+		c_begin_round.rpc_id(id, String(mode.id), level.layout_name)
+		c_mode_state.rpc_id(id, mode.state())
 	for i in info:
 		if i != id:
 			var p: Player = players.get(i)
@@ -418,18 +439,41 @@ func srv_hit(victim: int, shooter: int, dmg: int, weapon: WeaponData = null, bid
 	v.alive = false
 	v.deaths += 1
 	deaths[victim] = v.deaths
-	if info.has(shooter):
+	var has_killer := info.has(shooter)
+	if has_killer:
 		info[shooter].kills += 1
 		kills[shooter] = info[shooter].kills
-		team_score[info[shooter].team] += 1
+	var msgs := mode.on_kill(shooter if has_killer else 0, info[shooter].team if has_killer else -1, victim, v.team)
+	msgs.append_array(mode.on_death(victim, vp.global_position if vp else Vector3.ZERO))
 	c_died.rpc(victim, shooter)
 	c_scores.rpc(team_score, kills, deaths)
-	if info.has(shooter) and team_score[info[shooter].team] >= Config.WIN_SCORE:
-		match_over = true
-		c_match_over.rpc(info[shooter].team)
-		get_tree().create_timer(8.0).timeout.connect(_srv_reset_match)
-	else:
+	_srv_mode_effects(msgs)
+	if not _srv_check_result():
 		get_tree().create_timer(Config.RESPAWN_TIME).timeout.connect(_srv_respawn.bind(victim))
+
+## Server: after the mode changed something (kill, tick): feed lines, loadouts it pushed, scores, state.
+func _srv_mode_effects(msgs: Array) -> void:
+	for m in msgs:
+		c_mode_msg.rpc(m)
+	for pid in mode.take_dirty():
+		if info.has(pid):
+			_srv_refresh_loadout(pid)
+	if mode.scores != _last_scores:
+		_last_scores = mode.scores.duplicate()
+		c_scores.rpc(team_score, kills, deaths)
+	if not msgs.is_empty():
+		c_mode_state.rpc(mode.state())
+
+## Server: end the match when the mode has a result. True if the match is over.
+func _srv_check_result() -> bool:
+	var r := mode.result()
+	if r.is_empty():
+		return false
+	if not match_over:
+		match_over = true
+		c_match_over.rpc(r.team, r.get("text", ""))
+		get_tree().create_timer(8.0).timeout.connect(_srv_round_end)
+	return true
 
 func _srv_add_charge(shooter: int, victim: int, dmg: int) -> void:
 	if shooter == victim or not info.has(shooter) or srv_has(shooter, "ult"):
@@ -453,8 +497,91 @@ func _srv_respawn(id: int) -> void:
 	info[id].alive = true
 	c_respawn.rpc(id, _respawn_spawn(id))
 
-func _srv_reset_match() -> void:
-	team_score = [0, 0]
+## Server: push the mode's loadout override (Gun Game weapon) to everyone. The player's own choice stays in `pending`.
+func _srv_refresh_loadout(id: int) -> void:
+	var inf: Dictionary = info[id]
+	if inf.pending.is_empty():
+		inf.pending = inf.loadout.duplicate()
+	inf.loadout = mode.loadout_for(id, inf.loadout)
+	c_loadout.rpc(id, Loadout.to_wire(inf.loadout), inf.max_hp)
+
+## Server: a new round with this mode on this map (both clear the old state; tells every peer).
+func _srv_begin_round(mid: StringName, map: String) -> void:
+	c_begin_round.rpc(String(mid), map)
+	if bot_mgr:
+		bot_mgr.set_map(level.layout_name)
+	for id in info:
+		if info[id].has("pending"):
+			var inf: Dictionary = info[id]
+			if inf.pending.is_empty():
+				inf.pending = inf.loadout.duplicate()
+			inf.loadout = mode.loadout_for(id, inf.pending)
+			c_loadout.rpc(id, Loadout.to_wire(inf.loadout), inf.max_hp)
+
+func _humans() -> int:
+	var n := 0
+	for i in info:
+		if i > 0:
+			n += 1
+	return n
+
+## Server: 8 s after the banner. Humans get the vote screen, tests / vote-off games go straight to the next round.
+func _srv_round_end() -> void:
+	if Config.vote_enabled and not Config.test_mode and _humans() > 0:
+		_srv_open_vote()
+	else:
+		_srv_reset_match()
+
+func _srv_open_vote() -> void:
+	var modes := []
+	for m in Modes.IDS:
+		modes.append(String(m))
+	var maps: Array = level.map_names() if level.map_names().size() > 1 else []
+	vote = MapVote.new(modes, maps)
+	voting = true
+	c_vote_open.rpc(modes, maps, Balance.VOTE_SECONDS)
+	get_tree().create_timer(Balance.VOTE_SECONDS).timeout.connect(_srv_close_vote)
+
+func _srv_close_vote() -> void:
+	if not voting or vote == null:
+		return
+	voting = false
+	var r := vote.result()
+	vote = null
+	c_vote_close.rpc()
+	_srv_reset_match(StringName(r.mode), r.map)
+
+## Owner: cast / change my vote (mode index, map index; -1 = leave that ballot alone).
+func request_vote(mode_i: int, map_i: int) -> void:
+	if multiplayer.is_server():
+		_srv_vote(1, mode_i, map_i)
+	else:
+		srv_vote.rpc_id(1, mode_i, map_i)
+
+@rpc("any_peer", "reliable")
+func srv_vote(mode_i: int, map_i: int) -> void:
+	if multiplayer.is_server():
+		_srv_vote(multiplayer.get_remote_sender_id(), mode_i, map_i)
+
+func _srv_vote(voter: int, mode_i: int, map_i: int) -> void:
+	if not voting or vote == null or not info.has(voter) or voter < 0:
+		return
+	vote.cast(voter, mode_i, map_i)
+	c_vote_counts.rpc(vote.mode_counts(), vote.map_counts())
+	var humans := _humans()
+	var all_modes: bool = vote.mode_votes.size() >= humans
+	var all_maps: bool = vote.map_options.is_empty() or vote.map_votes.size() >= humans
+	if all_modes and all_maps:
+		get_tree().create_timer(1.0).timeout.connect(_srv_close_vote)
+
+## Host: skip the vote (the leading options win, ties and no votes random).
+func request_vote_skip() -> void:
+	if multiplayer.is_server():
+		_srv_close_vote()
+
+func _srv_reset_match(new_mode: StringName = &"", new_map := "") -> void:
+	voting = false
+	_srv_begin_round(new_mode if Modes.valid(new_mode) else mode.id, new_map if ArenaLevel.LAYOUTS.has(new_map) else level.layout_name)
 	kills.clear(); deaths.clear()
 	match_over = false
 	for id in info:
@@ -546,16 +673,52 @@ func c_scores(ts: Array, k: Dictionary, d: Dictionary) -> void:
 	state_changed.emit()
 
 @rpc("authority", "call_local", "reliable")
-func c_match_over(team: int) -> void:
+func c_match_over(team: int, text := "") -> void:
 	match_over = true
 	winner = team
+	winner_text = text if text != "" else "%s TEAM WINS!" % Config.TEAM_NAMES[maxi(team, 0)]
 	state_changed.emit()
 
 @rpc("authority", "call_local", "reliable")
 func c_match_reset() -> void:
 	match_over = false
 	winner = -1
+	winner_text = ""
 	state_changed.emit()
+
+## Every peer: a round with this mode/map begins (fresh mode object = fresh scores / flags / gun levels).
+@rpc("authority", "call_local", "reliable")
+func c_begin_round(mid: String, map: String) -> void:
+	mode = Modes.create(StringName(mid))
+	if level:
+		level.set_layout(map)
+		mode.setup_level(level)
+	_last_scores = [0, 0]
+	voting = false
+	mode_changed.emit()
+	state_changed.emit()
+
+@rpc("authority", "unreliable_ordered")
+func c_mode_state(d: Dictionary) -> void:
+	mode.apply_state(d)
+
+@rpc("authority", "call_local", "reliable")
+func c_mode_msg(text: String) -> void:
+	mode_message.emit(text)
+
+@rpc("authority", "call_local", "reliable")
+func c_vote_open(modes: Array, maps: Array, secs: float) -> void:
+	voting = true
+	vote_opened.emit(modes, maps, secs)
+
+@rpc("authority", "call_local", "reliable")
+func c_vote_counts(mc: Array, pc: Array) -> void:
+	vote_counts_changed.emit(mc, pc)
+
+@rpc("authority", "call_local", "reliable")
+func c_vote_close() -> void:
+	voting = false
+	vote_closed.emit()
 
 # ---------------------------------------------------------------- loadouts / gadgets / ultimates (server)
 ## Owner: choose a loadout. First confirm applies immediately (first spawn); later ones apply on next respawn.
@@ -588,6 +751,7 @@ func _srv_apply_loadout(id: int, heal: bool) -> void:
 	if lo.ultimate != inf.loadout.ultimate:
 		inf.ult_charge = 0
 		c_ult_charge.rpc(id, 0)
+	lo = mode.loadout_for(id, lo)
 	inf.loadout = lo
 	inf.max_hp = Loadout.max_hp(lo)
 	inf.gadget_ready = 0.0
@@ -608,6 +772,8 @@ func srv_gadget(origin: Vector3, dir: Vector3) -> void:
 		_srv_gadget(multiplayer.get_remote_sender_id(), origin, dir)
 
 func _srv_gadget(id: int, origin: Vector3, dir: Vector3) -> void:
+	if not mode.gadgets_allowed():
+		return
 	if not info.has(id) or match_over or not info[id].alive or srv_has(id, "phase"):
 		return
 	var inf: Dictionary = info[id]
@@ -675,6 +841,8 @@ func srv_ultimate() -> void:
 		_srv_ultimate(multiplayer.get_remote_sender_id())
 
 func _srv_ultimate(id: int) -> void:
+	if not mode.gadgets_allowed():
+		return
 	if not info.has(id) or match_over or not info[id].alive or srv_has(id, "ult"):
 		return
 	var inf: Dictionary = info[id]
@@ -689,6 +857,7 @@ func _physics_process(_d: float) -> void:
 	if not net_ready() or not multiplayer.is_server() or match_over:
 		return
 	var now := _now()
+	_srv_mode_tick(_d)
 	for t in traps.duplicate():
 		if now > t.ends:
 			_srv_remove_trap(t.id)
@@ -716,6 +885,19 @@ func _physics_process(_d: float) -> void:
 			if Vector2(d3.x, d3.z).length() <= u.f("ram_radius") and absf(d3.y) < 1.6:
 				info[id].ram_cd[eid] = now + u.f("ram_interval")
 				srv_hit(eid, id, int(u.f("ram_damage")))
+
+func _srv_mode_tick(dt: float) -> void:
+	var ps := []
+	for id in info:
+		if players.has(id):
+			ps.append({"id": id, "team": info[id].team, "pos": (players[id] as Player).global_position, "alive": info[id].alive})
+	var msgs := mode.tick(dt, ps)
+	_srv_mode_effects(msgs)
+	_mode_sync -= dt
+	if _mode_sync <= 0.0:
+		_mode_sync = 0.2
+		c_mode_state.rpc(mode.state())
+	_srv_check_result()
 
 # ---------------------------------------------------------------- everyone: loadout / status / fx
 @rpc("authority", "call_local", "reliable")

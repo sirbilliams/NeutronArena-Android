@@ -18,7 +18,7 @@ func _ready() -> void:
 	add_child(panel)
 
 func _process(_d: float) -> void:
-	var show := Input.is_key_pressed(KEY_TAB)
+	var show := Input.is_key_pressed(KEY_TAB) or (world != null and world.match_over and not world.voting)   # round end shows it by itself
 	for d in Input.get_connected_joypads():
 		show = show or Input.is_joy_button_pressed(d, JOY_BUTTON_START)
 	panel.visible = show
@@ -26,7 +26,9 @@ func _process(_d: float) -> void:
 		label.text = text()
 
 func text() -> String:
-	var out := "%s %d   -   %d %s\n" % [Config.TEAM_NAMES[0], world.team_score[0], world.team_score[1], Config.TEAM_NAMES[1]]
+	var out := "%s   [%s]\n" % [world.mode.score_line(), world.mode.display_name]
+	if world.match_over:
+		out += "%s\n" % world.winner_text
 	for t in 2:
 		out += "\n%s\n" % Config.TEAM_NAMES[t]
 		var ids := []
@@ -35,7 +37,7 @@ func text() -> String:
 				ids.append(id)
 		ids.sort_custom(func(a, b): return world.kills.get(a, 0) > world.kills.get(b, 0))
 		for id in ids:
-			out += "  %-12s K %2d  D %2d\n" % [("[BOT] %d" % -id) if id < 0 else ("Player %d" % id), world.kills.get(id, 0), world.deaths.get(id, 0)]
+			out += "  %-12s K %2d  D %2d%s\n" % [("[BOT] %d" % -id) if id < 0 else ("Player %d" % id), world.kills.get(id, 0), world.deaths.get(id, 0), world.mode.board_extra(id)]
 	var me: Player = world.players.get(multiplayer.get_unique_id())
 	if me:   # device diagnostics: which clips were turned, and the facing numbers while moving
 		out += "\nfacing fixes: %s   model %.0f  cam %.0f  clip %s" % [", ".join(AnimFix.turned) if AnimFix.turned else "none", rad_to_deg(me.model_yaw), rad_to_deg(me.cam_yaw), me.anim.current_animation if me.anim else "-"]

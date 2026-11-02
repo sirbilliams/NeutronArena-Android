@@ -161,7 +161,10 @@ func _think(now: float) -> void:
 	if now > strafe_until:
 		strafe = -strafe if randf() < 0.8 else strafe
 		strafe_until = now + randf_range(0.7, 1.7)
-	var route_dir := _route_dir(pos2, retreating)
+	# mode objective: flag / hill goal (null = TDM / Gun Game: follow the street towards the enemy and fight)
+	var goal: Variant = world.mode.bot_goal(id, inf.team, pos)
+	var rushing := world.mode.bot_rush(id)
+	var route_dir := _route_dir(pos2, retreating, _flat(goal) if goal != null else Vector2.INF)
 	var intent := route_dir
 	want_mvt = false
 	var in_combat := target_vis and dist < rng
@@ -170,6 +173,11 @@ func _think(now: float) -> void:
 		if retreating:
 			intent = (-to_t * 0.8 + perp * 0.5).normalized()
 			want_mvt = true
+		elif rushing:
+			intent = route_dir     # flag carrier: keep running, shoot on the way
+			want_mvt = true
+		elif goal != null and _flat(goal).distance_to(pos2) < 6.0 and dist > pref * 0.55:
+			intent = perp          # holding the hill / flag stand: strafe instead of chasing out
 		elif dist > rng * 0.85:
 			intent = to_t if dist < 35.0 else route_dir
 		elif dist > pref * 1.3:
@@ -225,9 +233,23 @@ func _think(now: float) -> void:
 	# --- gadgets / ultimate
 	_use_gear(now, in_combat, dist, hp_frac, retreating)
 
-func _route_dir(pos2: Vector2, back: bool) -> Vector2:
+## Direction to follow the street. `goal` (world xz) set: walk the street towards it, straight at it when close.
+func _route_dir(pos2: Vector2, back: bool, goal := Vector2.INF) -> Vector2:
 	var pr := nav.project(pos2)
 	var sgn := 1.0 if player.team == Config.TEAM_JIMMY else -1.0
+	if goal != Vector2.INF and not back:
+		var gd := goal - pos2
+		if gd.length() < 14.0 and (pr.d <= 10.0 or gd.length() < 8.0):
+			return gd.normalized() if gd.length() > 1.5 else Vector2.ZERO
+		var gs: float = nav.project(goal).s
+		if absf(gs - pr.s) < 1.0:
+			return gd.normalized()
+		sgn = 1.0 if gs > pr.s else -1.0
+		if pr.d > 10.0:
+			return (nav.point_at(pr.s) - pos2).normalized()
+		var s2: float = pr.s + sgn * minf(9.0, absf(gs - pr.s))
+		var wp2 := nav.point_at(s2)
+		return (wp2 - pos2).normalized()
 	if back:
 		sgn = -sgn
 	if pr.d > 10.0:
