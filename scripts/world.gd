@@ -507,6 +507,8 @@ func _srv_refresh_loadout(id: int) -> void:
 
 ## Server: a new round with this mode on this map (both clear the old state; tells every peer).
 func _srv_begin_round(mid: StringName, map: String) -> void:
+	for t in traps.duplicate():   # a new round starts clean: no traps left over from the last one
+		_srv_remove_trap(t.id)
 	c_begin_round.rpc(String(mid), map)
 	if bot_mgr:
 		bot_mgr.set_map(level.layout_name)
