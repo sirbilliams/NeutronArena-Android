@@ -40,6 +40,12 @@ func _ready() -> void:
 			tm.main = self
 			add_child(tm)
 			return
+		if test.begins_with("ct_"):
+			var tc = load("res://tests/controls_test.gd").new()
+			tc.main = self
+			tc.role = test.substr(3)
+			add_child(tc)
+			return
 		var lo_test := test.begins_with("lo_")
 		var t = load("res://scripts/loadout_test.gd" if lo_test else "res://scripts/net_test.gd").new()
 		t.main = self
@@ -146,6 +152,8 @@ func _build_menu() -> void:
 	vote_cb.toggled.connect(func(on: bool): Config.vote_enabled = on)
 	box.add_child(vote_cb)
 	box.add_child(_theme_row())
+	if Config.gyro_supported():
+		box.add_child(_gyro_row())
 	var quit := Button.new(); quit.text = "Quit"
 	quit.theme_type_variation = &"SmallButton"
 	quit.pressed.connect(func(): get_tree().quit())
@@ -214,6 +222,33 @@ func _theme_row() -> HBoxContainer:
 	_update_theme_btn()
 	Config.theme_changed.connect(func(_id): _update_theme_btn())
 	return r
+
+## Android only: gyro aim on/off, sensitivity, invert Y (Config, saved in settings.cfg).
+func _gyro_row() -> VBoxContainer:
+	var v := VBoxContainer.new()
+	var top := HBoxContainer.new()
+	v.add_child(top)
+	var cb := CheckBox.new(); cb.text = "Gyro aim"
+	cb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	cb.button_pressed = Config.gyro_enabled
+	cb.toggled.connect(func(on: bool): Config.gyro_enabled = on; Config.save_settings())
+	top.add_child(cb)
+	var inv := CheckBox.new(); inv.text = "Invert Y"
+	inv.button_pressed = Config.gyro_invert_y
+	inv.toggled.connect(func(on: bool): Config.gyro_invert_y = on; Config.save_settings())
+	top.add_child(inv)
+	var sr := HBoxContainer.new()
+	v.add_child(sr)
+	var l := Label.new(); l.text = "Gyro sens"; l.theme_type_variation = &"Subtitle"
+	l.custom_minimum_size = Vector2(90, 0)
+	sr.add_child(l)
+	var sl := HSlider.new()
+	sl.min_value = 0.2; sl.max_value = 3.0; sl.step = 0.1; sl.value = Config.gyro_sens
+	sl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sl.custom_minimum_size = Vector2(0, 32)
+	sl.value_changed.connect(func(x: float): Config.gyro_sens = x; Config.save_settings())
+	sr.add_child(sl)
+	return v
 
 func _step_theme(d: int) -> void:
 	var i := UiTheme.IDS.find(Config.theme_id)

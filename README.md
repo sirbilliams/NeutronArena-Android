@@ -46,9 +46,12 @@ Dev fallback (the old way): an asset folder with the glbs (`NEUTRON_ASSETS=...` 
 Tests: `tests/run_setup_test.sh` (real import through the setup screen, needs your ISOs), `tools/compare_glb.py <imported> <reference>`.
 
 Run: `godot --path . ` then Host / Join (IP). CLI: `-- --host`, `-- --join=IP`, `-- --port=N`.
-Controls: WASD + mouse + LMB, or left stick / right stick / RT, A = jump, Esc frees the mouse.
-Loadout (4 slots, all numbers in scripts/balance.gd): gadget Q / LB, movement Shift / RB (hold; also A-hold = jetpack, A in air = double jump/glide),
-ultimate F / LB+RB (charges from damage dealt), loadout menu L / Back (also opens on first spawn and while dead; applies on respawn).
+Controls (gamepad): L1 / R1 cycle backwards / forwards through weapon > gadget > ultimate (highlighted bottom right), R2 fires the selected item
+(server checks cooldown / charge), left stick move, right stick look, A jump, Y gadget directly, B ultimate directly, L3 or X movement ability (hold; also A-hold = jetpack,
+A in air = double jump/glide), Back loadout menu. Keyboard: WASD + mouse + LMB (fires selected), Z / E cycle, Q gadget, F ultimate, Shift movement, L loadout menu, Esc frees the mouse.
+Gyro aim (Android only, main menu: on/off default off, sensitivity, invert Y): the gyroscope is added to camera yaw / pitch, no aim assist.
+Loadout (4 slots, all numbers in scripts/balance.gd); the ultimate charges from damage dealt; loadout menu also opens on first spawn and while dead (applies on respawn).
+Controls test: `tests/run_controls_test.sh`.
 Test: `tests/run_net_test.sh` (headless server + client + observer on localhost).
 Screenshots: `tools/vrun.sh res://tools/shots.tscn` (nested virtual KWin, needs a GPU).
 Loadout test: `tests/run_loadout_test.sh` (host + client + observer over localhost). Loadout shots: `tools/vrun.sh res://tools/shots_loadout.tscn`.
