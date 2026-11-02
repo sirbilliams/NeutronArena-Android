@@ -11,7 +11,7 @@ const DROP_BONES := ["__Root", "Bip01", "Dummy01"]
 const JIMMY_CLIPS := {"idle": "jimmyidle", "walk": "jimmywalk", "run": "jimmyfullrun", "jump": "jimmyjump", "fall": "jimmyfall", "fly": "jimmyfly", "scooter": "jimmyscooter", "scooterstop": "jimmyscooterstop"}
 ## own clips of the N2 characters (role -> clip in their glb)
 const OWN := {
-	&"carl": {"walk": "carlwalk", "run": "carlrun", "idle": "carlstop"},
+	&"carl": {"walk": "carlwalk", "idle": "carlstop"},   # carlrun has both arms raised (the gun ends up at head height): Jimmy's run, retargeted, instead
 	&"cindy": {"walk": "cindywalk", "idle": "cindyidle"},
 	&"sheen": {"idle": "sheenidle"},
 }
@@ -195,9 +195,11 @@ static func _build_libby() -> Node3D:
 	ap.animation_started.connect(func(clip: StringName):
 		for c in variants:
 			(variants[c] as Node3D).visible = c == str(clip))
+	# no jump / fall / fly clips: alias the run clip (Player holds its tucked-legs frame while airborne, see FootTable.AIR_T); the scooter
+	# ultimate uses the idle pose (vertex-animated body cannot be posed onto Jimmy's seated clip)
 	for r in JIMMY_CLIPS:
 		if not roles.has(r):
-			roles[r] = ""   # no jump / fall / fly clips: Player holds a run frame in the air
+			roles[r] = roles.get("idle", "") if r.begins_with("scooter") else roles.get("run", "")
 	m_set(root, roles)
 	return root
 

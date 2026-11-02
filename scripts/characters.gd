@@ -25,6 +25,17 @@ const FILES := {
 	&"libby": ["ase/n1/libystop.glb", "ase/n1/libywalk.glb", "ase/n1/libyrun.glb"],
 	&"negatron": ["nummey_villain.glb", "nummey.glb"],
 }
+## Per-base gear attachment (raw units, bone space of the skinned characters; Libby has no skeleton: model space, forward +X / up +Y / right +Z).
+## jet = jetpack.glb holder transform on "Bip01 Spine" (Libby: on the model), boot_off / boot_size = goof boot centre in the foot bone space and its length.
+## Jimmy / Negatron use the Balance.JETPACK_XF + Player.BOOT_* defaults (no entry). Tuned with tools/shots_charfix.gd.
+const _JET_BASIS := Basis(Vector3(1, 0, 0), Vector3(0, 0, -1), Vector3(0, 1, 0))   # Balance.JETPACK_XF basis (jp x up the spine, jp z forward)
+const GEAR := {
+	# Carl: round belly and ~3x bigger bone units than Jimmy: pack well behind the belly, boots scaled with the foot bone
+	&"carl": {"jet": Transform3D(_JET_BASIS * 1.4, Vector3(-20.0, -80.0, 1.5)), "boot_off": Vector3(6.0, 0.0, -6.0), "boot_size": 60.0},
+	&"negatron": {"jet": Transform3D(_JET_BASIS * 1.4, Vector3(-13.7, 12.0, 1.5))},
+	# Libby (vertex animated, no bones): the pack is parented to the model; forward +X, up +Y
+	&"libby": {"jet": Transform3D(Basis(Vector3(0, 1, 0), Vector3(0, 0, 1), Vector3(1, 0, 0)), Vector3(-45.0, -5.0, 0.0))},
+}
 const LOCK_HINT := {
 	&"libby": "Locked: import the Boy Genius disc (Re-import game files) to unlock.",
 }
@@ -49,6 +60,13 @@ static func sanitize(id, team: int) -> StringName:
 
 static func base_of(id: StringName) -> StringName:
 	return ROSTER[id].base if ROSTER.has(id) else &"jimmy"
+
+## Gear table row of a character id (its base's row; {} = Jimmy defaults).
+static var debug_gear := {}   # shots: base -> row that replaces the GEAR row (tools/shots_charfix.gd --jv)
+
+static func gear(id: StringName) -> Dictionary:
+	var b := base_of(id)
+	return debug_gear.get(b, GEAR.get(b, {}))
 
 static func is_evil(id: StringName) -> bool:
 	return ROSTER.has(id) and ROSTER[id].evil

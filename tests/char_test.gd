@@ -155,6 +155,37 @@ func select_flow() -> void:
 	Characters.debug_locked = []
 	cs.queue_free()
 
+## Scooter ultimate: only Negatron himself swaps to his scooter model; everybody else (evil clones included) rides Goddard's scooter as themselves.
+## Gear: the jetpack / goof boots attach with the per-character offsets of Characters.GEAR (Libby: pack on the model, no boots).
+func gear_checks(id: StringName) -> void:
+	var lo := Loadout.from_class(&"blaster")
+	lo["char"] = id
+	player.set_loadout(lo, 100)
+	check(player.model_char == id, "%s keeps its model after a loadout change" % id)
+	player.ultimate = UltimateData.get_ultimate(&"goddard_scooter")
+	player.set_status("ult", 5.0)
+	player._animate()
+	var neg := id == &"negatron"
+	check(player.model.visible != neg, "%s rider body %s on the scooter ultimate" % [id, "hidden (own scooter model)" if neg else "stays visible"])
+	check(player.jim_scooter != null and player.jim_scooter.visible != neg, "%s uses %s scooter" % [id, "Negatron's own" if neg else "Goddard's"])
+	check(not (player.scooter_model != null and player.scooter_model.visible) or neg, "%s is not swapped for a Negatron scooter model" % id)
+	if not neg and player.anim_scooter != "":
+		check(player.anim.has_animation(player.anim_scooter), "%s has a scooter ride clip (%s)" % [id, player.anim_scooter])
+	player.status.clear()
+	if Characters.base_of(id) != &"libby":
+		check(player.boot_ba.size() == 2, "%s has two goof boots on the foot bones" % id)
+	var gc := Characters.gear(id)
+	lo = Loadout.from_class(&"sky_jockey")
+	lo["char"] = id
+	player.set_loadout(lo, 100)
+	var skinned := Characters.base_of(id) != &"libby"
+	check(player.jp_attach != null, "%s has a jetpack attached" % id)
+	if player.jp_attach != null:
+		check((player.jp_attach is BoneAttachment3D) == skinned, "%s jetpack is on %s" % [id, "the spine bone" if skinned else "the model (no skeleton)"])
+		var holder := player.jp_attach.get_child(0) as Node3D
+		var want: Transform3D = gc.get("jet", Balance.JETPACK_XF)
+		check(holder.transform.is_equal_approx(want), "%s jetpack uses its own offset" % id)
+
 func _ready() -> void:
 	Config.test_mode = true
 	var fl := MeshInstance3D.new()
@@ -184,6 +215,13 @@ func _ready() -> void:
 			test_skinned(id)
 		if Characters.is_evil(id):
 			red_eyes(id)
+		gear_checks(id)
+	check(Characters.gear(&"carl") != Characters.gear(&"jimmy"), "Carl has his own gear offsets")
+	if Characters.available(&"libby"):
+		var lm := CharModel.build(&"libby")
+		var lr: Dictionary = lm.get_meta("roles")
+		check(lr.jump != "" and lr.fall != "" and lr.fly != "", "Libby has jump / fall / fly fallbacks (%s)" % lr.jump)
+		lm.free()
 	await select_flow()
 	print("\n".join(rows))
 	print("CHAR TEST ", "PASS" if fails == 0 else "FAIL (%d)" % fails)
