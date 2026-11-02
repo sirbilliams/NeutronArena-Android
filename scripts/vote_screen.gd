@@ -18,14 +18,20 @@ var _box: VBoxContainer
 
 func _ready() -> void:
 	visible = false
-	set_anchors_preset(Control.PRESET_FULL_RECT)
+	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	add_child(UiBackground.new(false))
+	var dim := ColorRect.new()   # the round keeps rendering behind the vote: darken it so the buttons read
+	dim.color = Color(0, 0, 0, 0.55)
+	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	dim.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(dim)
+	var center := CenterContainer.new()   # centred at any resolution (manual offsets slid off-screen on 16:9)
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	add_child(center)
 	_box = VBoxContainer.new()
-	_box.set_anchors_preset(Control.PRESET_CENTER)
 	_box.custom_minimum_size = Vector2(620, 0)
-	_box.position = Vector2(-310, -250)
 	_box.add_theme_constant_override("separation", 10)
-	add_child(_box)
+	center.add_child(_box)
 
 func open(modes: Array, maps: Array, secs: float, host: bool) -> void:
 	mode_ids = modes

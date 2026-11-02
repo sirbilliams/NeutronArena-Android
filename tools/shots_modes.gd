@@ -20,10 +20,13 @@ func _ready() -> void:
 	multiplayer.multiplayer_peer = peer
 	world = World.new(); add_child(world)
 	world.build()
+	var hud := Hud.new(); hud.world = world; add_child(hud)
+	var sb := Scoreboard.new(); sb.world = world; add_child(sb)
 	world.start_server()
 	
 	for i in 120: await get_tree().physics_frame
-	
+	world.request_team(Config.TEAM_JIMMY)
+	for i in 120: await get_tree().physics_frame
 	var modes = ["ctf", "koth", "gun_game", "tdm"]
 	for m in modes:
 		print("Starting mode: ", m)
@@ -36,15 +39,6 @@ func _ready() -> void:
 			continue
 		
 		await _shot(m + "_play")
-		
-		if m == "ctf" and me.cam != null:
-			var mode_ctf: ModeCtf = world.mode as ModeCtf
-			if mode_ctf and mode_ctf.flag.size() >= 2:
-				var enemy_flag_pos := mode_ctf.flag[1].pos
-				me.cam_arm.global_position = me.global_position + Vector3(0, 1.5, 0)
-				me.cam_arm.look_at(enemy_flag_pos + Vector3(0, 1.5, 0))
-				await get_tree().physics_frame
-				await _shot(m + "_play_enemy_flag")
 		
 		world._srv_open_vote()
 		for i in 60: await get_tree().physics_frame
